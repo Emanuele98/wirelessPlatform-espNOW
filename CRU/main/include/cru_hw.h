@@ -4,8 +4,17 @@
 #include <math.h>
 #include <stdint.h>
 #include "driver/i2c.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 
+#include "freertos/timers.h"
+#include "freertos/semphr.h"
+#include "freertos/FreeRTOS.h"
+
+//LIMITS BEFORE SENDING ALERTS
+#define OVER_CURRENT                    1								 	   /**< Maximum current tolerated */
+#define OVER_VOLTAGE                    185 	                               /**< Maximum voltage tolerated */
+#define OVER_TEMPERATURE                40									   /**< Maximum temperature tolerated */
 
 #define DYNAMIC_PARAM_TIMER_INTERVAL    pdMS_TO_TICKS(20)                      /**< Timer synced to Dynamic parameter characteristic (20 ms). */
 #define ALERT_PARAM_TIMER_INTERVAL      pdMS_TO_TICKS(60)				       /**< Timer synced to Alert parameter characteristic (60 ms). */
@@ -39,6 +48,9 @@
 #define LOCAL_OTP                    60                // Local fault indicator for overtemperature (in celsius)
 #define LOCAL_OVP                    10000             // Local fault indicator for overvoltage (in mV)
 #define LOCAL_OCP                    10000             // Local fault indicator for overcurrent (in mA)
+
+//timers
+TimerHandle_t dynamic_t_handle, alert_t_handle;
 
 /* Semaphore used to protect against I2C reading simultaneously */
 SemaphoreHandle_t i2c_sem;

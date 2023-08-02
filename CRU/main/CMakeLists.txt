@@ -1,5 +1,6 @@
 set(srcs    "main.c"
             "cru_hw.c"
+            "lis3dh.c"
             )
 set(include_dirs include)
 

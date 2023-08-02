@@ -1,6 +1,6 @@
 #
 # Automatically generated file. DO NOT EDIT.
-# Espressif IoT Development Framework (ESP-IDF) Project Configuration
+# Espressif IoT Development Framework (ESP-IDF) 5.1.0 Project Configuration
 #
 CONFIG_SOC_BROWNOUT_RESET_SUPPORTED="Not determined"
 CONFIG_SOC_TWAI_BRP_DIV_SUPPORTED="Not determined"
@@ -333,18 +333,16 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
-# Example Configuration
+# AUX-CTU Configuration
 #
 CONFIG_ESPNOW_WIFI_MODE_STATION=y
 # CONFIG_ESPNOW_WIFI_MODE_STATION_SOFTAP is not set
 CONFIG_ESPNOW_PMK="pmk1234567890123"
 CONFIG_ESPNOW_LMK="lmk1234567890123"
 CONFIG_ESPNOW_CHANNEL=11
-CONFIG_ESPNOW_SEND_COUNT=100
-CONFIG_ESPNOW_SEND_DELAY=1000
 CONFIG_ESPNOW_SEND_LEN=250
 # CONFIG_ESPNOW_ENABLE_LONG_RANGE is not set
-# end of Example Configuration
+# end of AUX-CTU Configuration
 
 #
 # Compiler options

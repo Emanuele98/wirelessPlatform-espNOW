@@ -1,4 +1,3 @@
-#include "driver/gpio.h"
 #include "include/cru_hw.h"
 
 /* 

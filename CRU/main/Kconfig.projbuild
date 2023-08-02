@@ -1,4 +1,4 @@
-menu "Example Configuration"
+menu "CRU Configuration"
 
     choice ESPNOW_WIFI_MODE
         prompt "WiFi mode"
@@ -30,20 +30,6 @@ menu "Example Configuration"
         range 0 14
         help
             The channel on which sending and receiving ESPNOW data.
-
-    config ESPNOW_SEND_COUNT
-        int "Send count"
-        default 100
-        range 1 65535
-        help
-            Total count of unicast ESPNOW data to be sent.
-
-    config ESPNOW_SEND_DELAY
-        int "Send delay"
-        default 1000
-        range 0 65535
-        help
-            Delay between sending two ESPNOW data, unit: ms.
 
     config ESPNOW_SEND_LEN
         int "Send len"
