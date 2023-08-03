@@ -1,4 +1,5 @@
 set(srcs    "main.c"
+            "peer.c"
             )
 set(include_dirs include)
 

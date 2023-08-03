@@ -1,5 +1,24 @@
-#ifndef ESPNOW_EXAMPLE_H
-#define ESPNOW_EXAMPLE_H
+#ifndef ESPNOW_H
+#define ESPNOW_H
+
+#include <stdlib.h>
+#include <time.h>
+#include <string.h>
+#include <assert.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/timers.h"
+#include "freertos/event_groups.h"
+#include "nvs_flash.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_now.h"
+#include "esp_crc.h"
+
+#include "peer.h"
 
 #define UNIT_ROLE MASTER
 
@@ -50,30 +69,27 @@ typedef struct {
     espnow_event_info_t info;
 } espnow_event_t;
 
-enum {
+typedef enum {
     ESPNOW_DATA_BROADCAST,
-    ESPNOW_DATA_UNICAST,
-};
+    ESPNOW_DATA_UNICAST //todo: make this payload_type? broadcast is unreliable so we won't use it
+} message_type;
 
 typedef enum {
-    MASTER,
-    PAD1,
-    PAD2,
-    PAD3,
-    PAD4,
-    SCOOTER1,
-    SCOOTER2,
-    SCOOTER3,
-    SCOOTER4,
-} peer_id;
+    ESPNOW_DATA_LOCALIZATION,
+    ESPNOW_DATA_ALERT,
+    ESPNOW_DATA_DYNAMIC,
+    ESPNOW_DATA_CONTROL
+} payload_type;
 
 /* User defined field of ESPNOW data in this example. */
 typedef struct { 
-    peer_id id;                           //Peer unit ID.
+    uint8_t id;                           //Peer unit ID.
     uint8_t type;                         //Broadcast or unicast ESPNOW data.
-    uint8_t loc;                          //Indicates wheter it is a localization message. Highest priority.
     uint16_t crc;                         //CRC16 value of ESPNOW data.
-    uint8_t payload[0];                   //Real payload of ESPNOW data.
+    float voltage;                     //Voltage value from I2C.
+    float current;                     //Current value from I2C.
+    float temp1;                       //Temperature value from I2C.
+    float temp2;                       //Temperature value from I2C.
 } __attribute__((packed)) espnow_data_t;
 
 #endif

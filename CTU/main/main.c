@@ -1,25 +1,11 @@
-#include <stdlib.h>
-#include <time.h>
-#include <string.h>
-#include <assert.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "freertos/timers.h"
-#include "freertos/event_groups.h"
-#include "nvs_flash.h"
-#include "esp_random.h"
-#include "esp_event.h"
-#include "esp_netif.h"
-#include "esp_wifi.h"
-#include "esp_log.h"
-#include "esp_mac.h"
-#include "esp_now.h"
-#include "esp_crc.h"
 #include "espnow.h"
+#include "peer.h"
 
 #define ESPNOW_MAXDELAY 512
 
 static const char *TAG = "MAIN";
+//todo: create an esp_now.c file and leave this main clean
+//todo: create a wifi.c file and leave this main clean
 
 static QueueHandle_t espnow_queue;
 
@@ -198,7 +184,7 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
     int rssi = recv_info->rx_ctrl->rssi;
 
     // TO DO: put in the queue only if the scooter is close enough
-    ESP_LOGE(TAG, "RSSI: %d", rssi);
+    //ESP_LOGE(TAG, "RSSI: %d", rssi);
 
     if (mac_addr == NULL || data == NULL || len <= 0) {
         ESP_LOGE(TAG, "Receive cb arg error");
@@ -215,7 +201,7 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
     memcpy(recv_cb->data, data, len);
     recv_cb->data_len = len;
 
-    //todo: put in the queue only if the scooter is close enough
+    //todo: put in the queue only if the scooter is close enough (RSSI)
     //todo: make localization commands asyncronous
     //todo: send to normal queue every other command
     //todo: check the localization field into the received data and send it to the localization queue
@@ -251,15 +237,14 @@ uint8_t espnow_data_parse(uint8_t *data, uint16_t data_len)
 /* Prepare ESPNOW data to be sent. */
 void espnow_data_prepare(espnow_data_t *buf, uint8_t *mac_addr, uint8_t loc)
 {  
+    //INITILIAZE THE BUFFER
+    memset(buf, 0, sizeof(espnow_data_t));
     // esp NOW data
     buf->id = UNIT_ROLE;
-    buf->crc = 0;
-    buf->loc = loc;
     buf->type = IS_BROADCAST_ADDR(mac_addr) ? ESPNOW_DATA_BROADCAST : ESPNOW_DATA_UNICAST;
-    /* Fill all remaining bytes after the data with random values */
-    //todo: fill actual data
-    esp_fill_random(buf->payload, CONFIG_ESPNOW_SEND_LEN - sizeof(espnow_data_t));
-    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, CONFIG_ESPNOW_SEND_LEN);
+    //todo: control data
+    //todo: localization data
+    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, sizeof(espnow_data_t));
 }
 
 static void espnow_task(void *pvParameter)
@@ -277,6 +262,7 @@ static void espnow_task(void *pvParameter)
                 ESP_LOGI(TAG, "send data to "MACSTR", status: %d", MAC2STR(send_cb->mac_addr), send_cb->status);
                 //todo: if status != 0, then resend data
                 //todo: check retransmission count
+                // never broadcast --> check only for unicast
 
                 break;
             }
@@ -294,6 +280,7 @@ static void espnow_task(void *pvParameter)
                 
                 unitID = recv_data->id;
                 addr_type = recv_data->type;
+                float voltage = recv_data->voltage;
                 free(recv_cb->data);
 
                 if (addr_type == ESPNOW_DATA_BROADCAST) {
@@ -304,15 +291,13 @@ static void espnow_task(void *pvParameter)
                         esp_now_register_peer(recv_cb->mac_addr);
 
                         ESP_LOGW(TAG, "NEW PEER FOUND! %d ", unitID);
-                        //todo: save its details into our structure 
-                        //also address it with its unitID
-                        //save also encrypted status
-
+                        // save its details into peer structure 
+                        peer_add(unitID, recv_cb->mac_addr);
 
                         //Send unicast data to make him stop sending broadcast msg
                         //avoid encryption for the first message (needs to be registered on both sides)
                         espnow_data_prepare(espnow_data, recv_cb->mac_addr, 0);
-                        if (esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, CONFIG_ESPNOW_SEND_LEN) != ESP_OK) {
+                        if (esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
                             ESP_LOGE(TAG, "Send error");
                         }
                         // then encrypt for future messages
@@ -321,10 +306,14 @@ static void espnow_task(void *pvParameter)
 
                 }
                 else if (addr_type == ESPNOW_DATA_UNICAST) {
-                    ESP_LOGI(TAG, "Receive unicast data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
+                    //ESP_LOGI(TAG, "Receive unicast data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
 
+                    ESP_LOGI(TAG, "Message from peer %d", unitID);
+                    ESP_LOGI(TAG, "Voltage: %.02f", voltage);
+                    //todo: switch case for different types of data (dynamic, alert, localization (only from CRU))
                     //todo: parse peer data and react accordingly
                     //todo: localize scooters who have not a set position yet
+                    
                     
                 }
                 else {
@@ -359,7 +348,7 @@ static esp_err_t espnow_init(void)
     /* Set primary master key. */
     ESP_ERROR_CHECK( esp_now_set_pmk((uint8_t *)CONFIG_ESPNOW_PMK) );
 
-    espnow_data_t *buffer = malloc(CONFIG_ESPNOW_SEND_LEN);
+    espnow_data_t *buffer = malloc(sizeof(espnow_data_t));
     if (buffer == NULL) {
         ESP_LOGE(TAG, "Malloc send buffer fail");
         return ESP_FAIL;
@@ -380,7 +369,12 @@ void app_main(void)
     }
     ESP_ERROR_CHECK( ret );
 
+    ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
+    ESP_LOGE(TAG, "length of espnow_data_t: %d", sizeof(espnow_data_t));
+
     wifi_init();
     espnow_init();
-    //todo: 
+    peer_init(MAX_PEERS);
+    //todo: temperature sensor init
+    //todo: sd card init
 }
