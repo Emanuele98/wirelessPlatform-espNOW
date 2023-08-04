@@ -18,7 +18,7 @@ wpt_alert_payload_t alert_payload;
 TimerHandle_t dynamic_timer = NULL;
 TimerHandle_t alert_timer = NULL;
 
-void espnow_data_prepare(espnow_data_t *buf, uint8_t *mac_addr, uint8_t loc);
+void espnow_data_prepare(espnow_data_t *buf, message_type type);
 
 
 /* WiFi should start before using ESPNOW */
@@ -42,8 +42,8 @@ void dynamic_timer_callback(TimerHandle_t xTimer)
 {
     //save values to peer structure
     //todo: to be done into the hardware readings
-    dynamic_payload.vrect = 0;
-    dynamic_payload.irect = 0;
+    dynamic_payload.voltage = 0;
+    dynamic_payload.current = 0;
     dynamic_payload.temp1 = 0;
     dynamic_payload.temp2 = 0;
     //send them to master //
@@ -53,7 +53,7 @@ void dynamic_timer_callback(TimerHandle_t xTimer)
         free(buf);
         return;
     }
-    espnow_data_prepare(buf, master_mac, 0);
+    espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
     if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
         ESP_LOGE(TAG, "Send error");
     }
@@ -65,6 +65,12 @@ void alert_timer_callback(TimerHandle_t xTimer)
 {
     //check if values are in range
     //if not, send alert to master
+    /*
+    espnow_data_prepare(buf, ESP_NOW_DATA_ALERT);
+    if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
+        ESP_LOGE(TAG, "Send error");
+    }
+    */
 
 }
 
@@ -131,9 +137,7 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
     }
     memcpy(recv_cb->data, data, len);
     recv_cb->data_len = len;
-    //todo: make localization commands asyncronous
-    //todo: send to normal queue every other command
-    //todo: check the localization field into the received data and send it to the localization queue
+
     if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE) {
         ESP_LOGW(TAG, "Send receive queue fail");
         free(recv_cb->data);
@@ -141,7 +145,7 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
 }
 
 /* Parse received ESPNOW data. */
-uint8_t espnow_data_parse(uint8_t *data, uint16_t data_len)
+uint8_t espnow_data_crc_control(uint8_t *data, uint16_t data_len)
 {
     espnow_data_t *buf = (espnow_data_t *)data;
     uint16_t crc, crc_cal = 0;
@@ -163,20 +167,51 @@ uint8_t espnow_data_parse(uint8_t *data, uint16_t data_len)
 }
 
 /* Prepare ESPNOW data to be sent. */
-void espnow_data_prepare(espnow_data_t *buf, uint8_t *mac_addr, uint8_t loc)
+void espnow_data_prepare(espnow_data_t *buf, message_type type)
 {
     //initiliaze buf to 0
     memset(buf, 0, sizeof(espnow_data_t));
     // esp NOW data
     buf->id = UNIT_ROLE;
-    buf->type = IS_BROADCAST_ADDR(mac_addr) ? ESPNOW_DATA_BROADCAST : ESPNOW_DATA_UNICAST;
+    buf->type = type;
     
-    //todo:localizarion data 
+    switch (type)
+    {
+        case ESPNOW_DATA_BROADCAST:
+            //nothing else to do
+            break;
+    
+        case ESPNOW_DATA_LOCALIZATION:
+            // on/off
+            break;
 
-    //todo: measurements data
-    buf->voltage = 2.2;
-    //todo: alerts data
+        case ESPNOW_DATA_ALERT:
+            // fill in alerts data
+            buf->field_1 = alert_payload.overtemperature;
+            buf->field_2 = alert_payload.overcurrent;
+            buf->field_3 = alert_payload.overvoltage;
+            buf->field_4 = alert_payload.FOD;
 
+            break;
+        
+        case ESPNOW_DATA_DYNAMIC:
+            // fill in dynamic data
+            buf->field_1 = dynamic_payload.voltage;
+            buf->field_2 = dynamic_payload.current;
+            buf->field_3 = dynamic_payload.temp1;
+            buf->field_4 = dynamic_payload.temp2;
+            break;
+        
+        case ESPNOW_DATA_CONTROL:
+            // only received - never sent
+            break;
+
+        default:
+            ESP_LOGE(TAG, "Message type error: %d", type);
+            break;
+    }
+
+    // CRC
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, sizeof(espnow_data_t));
 }
 
@@ -196,15 +231,16 @@ static void espnow_task(void *pvParameter)
             case ID_ESPNOW_SEND_CB:
             {
                 espnow_event_send_cb_t *send_cb = &evt.info.send_cb;
-                addr_type = IS_BROADCAST_ADDR(send_cb->mac_addr) ? ESPNOW_DATA_BROADCAST : ESPNOW_DATA_UNICAST;
+                addr_type = IS_BROADCAST_ADDR(send_cb->mac_addr) ? true : false;
                 esp_now_get_peer_num(&peer_num);
 
                 ESP_LOGI(TAG, "Send data to "MACSTR". status: %d", MAC2STR(send_cb->mac_addr), send_cb->status);
 
-                if (addr_type == ESPNOW_DATA_BROADCAST)
+                if (addr_type)
                 {
+                    // Broadcast message will never return status 0 as it does not wait for ack
                     // if the master (encrypted) is registered, then stop sending broadcast data
-                    if ((peer_num.encrypt_num) && (addr_type == ESPNOW_DATA_BROADCAST))
+                    if (peer_num.encrypt_num)
                     {
                         ESP_LOGI(TAG, "Stop sending broadcast data");
                         break;
@@ -213,10 +249,10 @@ static void espnow_task(void *pvParameter)
                     /* Otherwise, Delay a while before sending the next data. */
                     vTaskDelay(BROADCAST_TIMEGAP);
                     
-                    espnow_data_prepare(espnow_data, send_cb->mac_addr, 0);
+                    espnow_data_prepare(espnow_data, ESPNOW_DATA_BROADCAST);
 
                     /* Send the next data after the previous data is sent. */
-                    if (esp_now_send(send_cb->mac_addr, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
+                    if (esp_now_send(broadcast_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
                         ESP_LOGE(TAG, "Send error");
                     }
                 } 
@@ -233,7 +269,7 @@ static void espnow_task(void *pvParameter)
                 espnow_event_recv_cb_t *recv_cb = &evt.info.recv_cb;
 
                 // Check CRC of received ESPNOW data.
-                if(!espnow_data_parse(recv_cb->data, recv_cb->data_len))
+                if(!espnow_data_crc_control(recv_cb->data, recv_cb->data_len))
                 {
                     ESP_LOGE(TAG, "Receive error data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                     break;
@@ -241,27 +277,24 @@ static void espnow_task(void *pvParameter)
 
                 espnow_data_t *recv_data = (espnow_data_t *)recv_cb->data;
                 addr_type = recv_data->type;
-                //unitID probably not needed
-                free(recv_cb->data);
 
                 if (addr_type == ESPNOW_DATA_BROADCAST) 
                 {
                     ESP_LOGI(TAG, "Receive broadcast data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
                     //! ignore it as it comes from other peers
                 }
-            
-                else if (addr_type == ESPNOW_DATA_UNICAST) 
+                else if(addr_type == ESPNOW_DATA_CONTROL) 
                 {
-                    //todo: make switch case for different types of data (control highest priority) (localization for CRU highest priority)
-                    ESP_LOGI(TAG, "Receive unicast data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
+                    ESP_LOGI(TAG, "Receive control data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
 
                     //* Add MASTER 
                     /* If MAC address does not exist in peer list, add it to peer list. */
                     if (esp_now_is_peer_exist(recv_cb->mac_addr) == false) 
                     {
-                        esp_now_register_master(recv_cb->mac_addr, true);
                         memcpy(master_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
                         ESP_LOGI(TAG, "Add master "MACSTR" to peer list", MAC2STR(master_mac));
+                        esp_now_register_master(master_mac, true);
+
                         //!start sending measurements data to the master
                         if (xTimerStart(dynamic_timer, 0) != pdPASS) {
                             ESP_LOGE(TAG, "Cannot start dynamic timer");
@@ -270,19 +303,28 @@ static void espnow_task(void *pvParameter)
                             ESP_LOGE(TAG, "Cannot start alert timer");
                         }
                     }
-                    
+                    else
+                    {
+                        //Unpack data and switch on/off
+                        //take care of leds
+                    }
                 }
-                else {
-                    ESP_LOGI(TAG, "Receive error data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
-                }
+                //todo: CRU receives also localization data
+                else 
+                    ESP_LOGI(TAG, "Receive unexpected message type %d data from: "MACSTR"", addr_type, MAC2STR(recv_cb->mac_addr));
+                
+                free(recv_cb->data);
                 break;
             }
             default:
                 ESP_LOGE(TAG, "Callback type error: %d", evt.id);
                 break;
         }
-        //todo: free espnow_data
     }
+
+    vQueueDelete(espnow_queue);
+    vTaskDelete(NULL);
+    free(espnow_data);
 }
 
 static esp_err_t espnow_init(void)
@@ -313,7 +355,7 @@ static esp_err_t espnow_init(void)
         free(buffer);
         return ESP_FAIL;
     }
-    espnow_data_prepare(buffer, broadcast_mac, 0);
+    espnow_data_prepare(buffer, ESPNOW_DATA_BROADCAST);
 
     // create a task to handle espnow events
     xTaskCreate(espnow_task, "espnow_task", 2048, buffer, 4, NULL);
@@ -334,7 +376,7 @@ void app_main(void)
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
     //todo: initialize hardware
-    //todo: start periodic alerts checking
+
     wifi_init();
     espnow_init();
 

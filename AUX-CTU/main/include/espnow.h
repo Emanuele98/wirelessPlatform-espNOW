@@ -9,7 +9,6 @@
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 #include "nvs_flash.h"
-#include "esp_random.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -18,7 +17,7 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 
-#define UNIT_ROLE SCOOTER4
+#define UNIT_ROLE PAD1
 
 /* ESPNOW can work in both station and softap mode. It is configured in menuconfig. */
 #if CONFIG_ESPNOW_WIFI_MODE_STATION
@@ -32,8 +31,8 @@
 
 #define ESPNOW_QUEUE_SIZE           10
 #define BROADCAST_TIMEGAP           pdMS_TO_TICKS(1000)
-#define ALERT_TIMEGAP               pdMS_TO_TICKS(1000)
-#define DYNAMIC_TIMEGAP             pdMS_TO_TICKS(1000)
+#define ALERT_TIMEGAP               pdMS_TO_TICKS(200)
+#define DYNAMIC_TIMEGAP             pdMS_TO_TICKS(2000)
 
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
@@ -67,15 +66,11 @@ typedef struct {
 
 typedef enum {
     ESPNOW_DATA_BROADCAST,
-    ESPNOW_DATA_UNICAST //todo: make this payload_type? broadcast is unreliable so we won't use it
-} message_type;
-
-typedef enum {
     ESPNOW_DATA_LOCALIZATION,
     ESPNOW_DATA_ALERT,
     ESPNOW_DATA_DYNAMIC,
     ESPNOW_DATA_CONTROL
-} payload_type;
+} message_type;
 
 typedef enum {
     MASTER,
@@ -92,33 +87,35 @@ typedef enum {
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct
 {
-    float             vrect;              /**< Vrect value from I2C (4 bytes). */
-    float             irect;              /**< Irect value from I2C (4 bytes). */
+    float             voltage;            /**< Voltage value from I2C (4 bytes). */
+    float             current;            /**< Current value from I2C (4 bytes). */
     float             temp1;              /**< Temperature value from I2C (4 bytes). */
     float             temp2;              /**< Temperature value from I2C (4 bytes). */
 } wpt_dynamic_payload_t;
 
 /**@brief Alert characteristic structure. This contains elements necessary for alert payload. */
+/* The union structure allows to check only 'internal', as it gets positive as soon as at one field of the struct is 1 */
 typedef union
 {
 	struct {
-		uint8_t           overtemperature:1;    /**< [mandatory] Defines which optional fields are populated (1 byte). */
-		uint8_t           overcurrent:1;        /**< [mandatory] Defines which optional fields are populated (1 byte). */
-		uint8_t           overvoltage:1;        /**< [mandatory] Defines which optional fields are populated (1 byte). */
-   		uint8_t           FOD:1;                /**< [mandatory] Defines which optional fields are populated (1 byte). */
+		uint8_t           overtemperature:1;    
+		uint8_t           overcurrent:1;        
+		uint8_t           overvoltage:1;        
+   		uint8_t           FOD:1;                
 	};
 	uint8_t internal;
 } wpt_alert_payload_t;
 
 /* User defined field of ESPNOW data in this example. */
+//todo: define the meaning of each field based on the message type
 typedef struct { 
     uint8_t id;                           //Peer unit ID.
     uint8_t type;                         //Broadcast or unicast ESPNOW data.
     uint16_t crc;                         //CRC16 value of ESPNOW data.
-    float voltage;                        //Voltage value from I2C.
-    float current;                        //Current value from I2C.
-    float temp1;                          //Temperature value from I2C.
-    float temp2;                          //Temperature value from I2C.
+    float field_1;                        
+    float field_2;                        
+    float field_3;                        
+    float field_4;                        
 } __attribute__((packed)) espnow_data_t;
 
 #endif

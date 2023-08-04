@@ -1,5 +1,5 @@
-#ifndef ESPNOW_H
-#define ESPNOW_H
+#ifndef _ESPNOW_H_
+#define _ESPNOW_H_
 
 #include <stdlib.h>
 #include <time.h>
@@ -32,7 +32,9 @@
 #endif
 // for wifi coex --> use WIFI_MODE_APSTA
 
-#define ESPNOW_QUEUE_SIZE           10
+#define ESPNOW_QUEUE_SIZE           20
+#define ESPNOW_MAXDELAY             pdMS_TO_TICKS(1000)
+
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 
@@ -71,25 +73,22 @@ typedef struct {
 
 typedef enum {
     ESPNOW_DATA_BROADCAST,
-    ESPNOW_DATA_UNICAST //todo: make this payload_type? broadcast is unreliable so we won't use it
-} message_type;
-
-typedef enum {
     ESPNOW_DATA_LOCALIZATION,
     ESPNOW_DATA_ALERT,
     ESPNOW_DATA_DYNAMIC,
     ESPNOW_DATA_CONTROL
-} payload_type;
+} message_type;
 
 /* User defined field of ESPNOW data in this example. */
+//todo: define the meaning of each field based on the message type
 typedef struct { 
     uint8_t id;                           //Peer unit ID.
     uint8_t type;                         //Broadcast or unicast ESPNOW data.
     uint16_t crc;                         //CRC16 value of ESPNOW data.
-    float voltage;                     //Voltage value from I2C.
-    float current;                     //Current value from I2C.
-    float temp1;                       //Temperature value from I2C.
-    float temp2;                       //Temperature value from I2C.
+    float field_1;                        
+    float field_2;                        
+    float field_3;                        
+    float field_4;                        
 } __attribute__((packed)) espnow_data_t;
 
-#endif
+#endif // _ESPNOW_H_
