@@ -1,5 +1,5 @@
-#ifndef _PEER_H_
-#define _PEER_H_
+#ifndef PEER_H
+#define PEER_H
 
 #include <stdint.h>
 #include <string.h>
@@ -7,9 +7,12 @@
 #include "esp_log.h"
 #include "espnow.h"
 
-#define MAX_PEERS 8
 #define NUMBER_TX 4
+#define NUMBER_RX 4
 #define RSSI_LIMIT -80
+
+//Whether at least one TX unit is already connected
+extern bool connected_pads;
 
 typedef enum {
     MASTER,
@@ -22,6 +25,28 @@ typedef enum {
     SCOOTER3,
     SCOOTER4
 } peer_id;
+
+typedef enum 
+{
+    NONE,
+    PAD,
+    SCOOTER
+} peer_type;
+
+typedef enum {
+    PAD_DISCONNECTED,       //when the pad is not connected
+    PAD_CONNECTED,          //when the pad is connected 
+    PAD_LOW_POWER,          //when the pad is on low power mode
+    PAD_FULL_POWER,         //when the pad is on full power mode
+    PAD_FULLY_CHARGED       //when the pad is off but a fully charged scooter is still present on it
+} pad_status;
+
+typedef enum {
+    SCOOTER_DISCONNECTED,   //when the scooter is not connected
+    SCOOTER_CONNECTED,      //when the scooter is connected but not localized yet
+    SCOOTER_CHARGING,       //when the position is found
+    SCOOTER_FULLY_CHARGED   //when the scooter is still on the pad but fully charged
+} scooter_status;
 
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct
@@ -53,7 +78,10 @@ struct peer
     SLIST_ENTRY(peer) next;
 
     peer_id id;
+    peer_type type;
     uint8_t mac[6];
+
+
 
     /* STATUS ON/OFF */
     bool full_power;
@@ -70,6 +98,7 @@ struct peer
     /** Peripheral payloads. */
     wpt_dynamic_payload_t dyn_payload;
     wpt_alert_payload_t  alert_payload;
+
 };
 
 
@@ -84,4 +113,4 @@ void peer_init(uint8_t max_peers);
 
 struct peer * peer_find(peer_id id);
 
-#endif // _PEER_H_
+#endif /* PEER_H */

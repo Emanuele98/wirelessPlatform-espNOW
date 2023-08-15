@@ -330,6 +330,8 @@ wpt_alert_payload_t alert_payload;
 TimerHandle_t dynamic_timer = NULL;
 TimerHandle_t alert_timer = NULL;
 
+scooter_position_t scooter_position = SCOOTER_POSITION_UNKNOWN;
+
 void espnow_data_prepare(espnow_data_t *buf, message_type type);
 
 
@@ -354,7 +356,8 @@ void dynamic_timer_callback(TimerHandle_t xTimer)
 {
     //save values to peer structure
     //todo: to be done into the hardware readings
-    dynamic_payload.voltage = 0;
+    dynamic_payload.voltage = gpio_get_level(VOLTAGE_IN_PIN);
+    ESP_LOGI(TAG, "Voltage: %.2f", dynamic_payload.voltage);
     dynamic_payload.current = 0;
     dynamic_payload.temp1 = 0;
     dynamic_payload.temp2 = 0;
@@ -365,10 +368,12 @@ void dynamic_timer_callback(TimerHandle_t xTimer)
         free(buf);
         return;
     }
+    /*
     espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
     if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
         ESP_LOGE(TAG, "Send error");
     }
+    */
 
     free(buf);
 }
@@ -494,7 +499,28 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type)
             break;
     
         case ESPNOW_DATA_LOCALIZATION:
-            // on/off
+            if (scooter_position == SCOOTER_POSITION_UNKNOWN)
+            {
+                buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = 0;
+                scooter_position = SCOOTER_POSITION_BEING_LOCALIZED;
+            }
+            else if (scooter_position == SCOOTER_POSITION_BEING_LOCALIZED)
+            {
+                buf->field_1 = dynamic_payload.voltage;
+                buf->field_2 = buf->field_3 = buf->field_4 = 0;
+                if (buf->field_1) //todo: is it higher than the min_voltage_threshold?
+                    scooter_position = SCOOTER_POSITION_FOUND;
+            }
+            else if (scooter_position == SCOOTER_POSITION_FOUND)
+            {
+                buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = 1;
+                if (xTimerStart(dynamic_timer, 0) != pdPASS) {
+                    ESP_LOGE(TAG, "Cannot start dynamic timer");
+                }
+                if (xTimerStart(alert_timer, 0) != pdPASS) {
+                    ESP_LOGE(TAG, "Cannot start alert timer");
+                }
+            }
             break;
 
         case ESPNOW_DATA_ALERT:
@@ -607,34 +633,31 @@ static void espnow_task(void *pvParameter)
                         ESP_LOGI(TAG, "Add master "MACSTR" to peer list", MAC2STR(master_mac));
                         esp_now_register_master(master_mac, true);
 
-                        // START LOCALIZATION 
+                        //todo: parse data to set local alerts limits
+
+                        // START LOCALIZATION PROCEDURE
                         espnow_data_prepare(espnow_data, ESPNOW_DATA_LOCALIZATION);
                         if (esp_now_send(master_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
                             ESP_LOGE(TAG, "Send error");
                         }
+                        
                     }
                     else
                     {
                         //Unpack data and switch on/off
-                        //take care of leds
                     }
                 }
                 else if (addr_type ==  ESPNOW_DATA_LOCALIZATION)
                 {
                     ESP_LOGI(TAG, "Receive LOCALIZATION message");
-                    //todo: define starting message - final message
-                    //todo: start timers only when its position is found
-                    // data (voltage request) --> schedule a localization send message
-                    // data (final message) --> position found
-                    /*                            
-                    if (xTimerStart(dynamic_timer, 0) != pdPASS) {
-                        ESP_LOGE(TAG, "Cannot start dynamic timer");
-                    }
-                    if (xTimerStart(alert_timer, 0) != pdPASS) {
-                        ESP_LOGE(TAG, "Cannot start alert timer");
-                    }
-                    */
                     
+                    //send the voltage back after reaction  time
+                    vTaskDelay(recv_data->field_1);
+                    espnow_data_prepare(espnow_data, ESPNOW_DATA_LOCALIZATION);
+                    if (esp_now_send(master_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
+                        ESP_LOGE(TAG, "Send error");
+                    }
+
                 }
                 else 
                     ESP_LOGI(TAG, "Receive unexpected message type %d data from: "MACSTR"", addr_type, MAC2STR(recv_cb->mac_addr));
@@ -702,6 +725,7 @@ void app_main(void)
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
     //todo: initialize hardware
+    //! todo: init GPIOs
     /* Initialize ACCELEROMETER */
     //accelerometer_init();
 
@@ -710,6 +734,16 @@ void app_main(void)
     /* Initialize V-A-T sensors */
     //init_sw_timers();
     //init_hw();
+    gpio_config_t io_conf;
+    //interrupt of rising edge
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    //bit mask of the pins, use GPIO4/5 here
+    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    //set as input mode
+    io_conf.mode = GPIO_MODE_INPUT;
+    //enable pull-up mode
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
     //i2c_sem = xSemaphoreCreateMutex();
 
     //todo: start periodic alerts checking
@@ -721,6 +755,10 @@ void app_main(void)
     ESP_ERROR_CHECK( dynamic_timer == NULL ? ESP_FAIL : ESP_OK);
     alert_timer = xTimerCreate("alert_timer", ALERT_TIMEGAP, pdTRUE, NULL, alert_timer_callback);
     ESP_ERROR_CHECK( alert_timer == NULL ? ESP_FAIL : ESP_OK);
+
+    if (xTimerStart(dynamic_timer, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Cannot start dynamic timer");
+    }
     //todo: another timer to make readings and save values to peer structure
 
     //ESP_NOW_DEINIT()

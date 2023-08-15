@@ -84,6 +84,13 @@ typedef enum {
     SCOOTER4,
 } peer_id;
 
+typedef enum
+{
+    SCOOTER_POSITION_UNKNOWN,
+    SCOOTER_POSITION_BEING_LOCALIZED,
+    SCOOTER_POSITION_FOUND
+} scooter_position_t;
+
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct
 {

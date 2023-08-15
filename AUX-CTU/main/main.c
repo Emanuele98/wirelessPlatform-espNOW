@@ -295,21 +295,23 @@ static void espnow_task(void *pvParameter)
                         ESP_LOGI(TAG, "Add master "MACSTR" to peer list", MAC2STR(master_mac));
                         esp_now_register_master(master_mac, true);
 
+                        //!parse data to set local alerts limits
+
                         //!start sending measurements data to the master
-                        if (xTimerStart(dynamic_timer, 0) != pdPASS) {
-                            ESP_LOGE(TAG, "Cannot start dynamic timer");
-                        }
-                        if (xTimerStart(alert_timer, 0) != pdPASS) {
-                            ESP_LOGE(TAG, "Cannot start alert timer");
-                        }
+                        //if (xTimerStart(dynamic_timer, 0) != pdPASS) {
+                        //    ESP_LOGE(TAG, "Cannot start dynamic timer");
+                        //}
+                        //if (xTimerStart(alert_timer, 0) != pdPASS) {
+                        //    ESP_LOGE(TAG, "Cannot start alert timer");
+                        //}
                     }
                     else
                     {
                         //Unpack data and switch on/off
+                        recv_data->field_2 ? gpio_set_level(LOW_POWER_OUT_PIN, 1) : gpio_set_level(LOW_POWER_OUT_PIN, 0);
                         //take care of leds
                     }
                 }
-                //todo: CRU receives also localization data
                 else 
                     ESP_LOGI(TAG, "Receive unexpected message type %d data from: "MACSTR"", addr_type, MAC2STR(recv_cb->mac_addr));
                 
@@ -376,6 +378,20 @@ void app_main(void)
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
     //todo: initialize hardware
+    //! todo: init GPIOs
+    gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    //disable pull-down mode
+    io_conf.pull_down_en = 1;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
 
     wifi_init();
     espnow_init();

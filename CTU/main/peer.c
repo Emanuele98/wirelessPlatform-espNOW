@@ -70,9 +70,16 @@ uint8_t peer_add(peer_id id, uint8_t *mac)
     p->id = id;
     memcpy(p->mac, mac, ESP_NOW_ETH_ALEN);
     if (id <= NUMBER_TX) //if peer is a TX UNIT
+    {
         p->position = id;
+        connected_pads = true;
+        p->type = PAD;
+    }
     else        //if peer is a RX UNIT
+    {
         p->position = 0;
+        p->type = SCOOTER;
+    }
     
     SLIST_INSERT_HEAD(&peers, p, next);
 
@@ -82,6 +89,7 @@ uint8_t peer_add(peer_id id, uint8_t *mac)
 void peer_init(uint8_t max_peers)
 {
     SLIST_INIT(&peers);
+    connected_pads = false;
 
     //register free memory function at the end of the program
     atexit(delete_all_peers);

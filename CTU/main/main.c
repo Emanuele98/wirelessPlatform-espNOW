@@ -1,6 +1,20 @@
 #include "espnow.h"
 #include "peer.h"
 
+/* ALERTS LIMITS TX */
+#define OVERCURRENT_TX      3
+#define OVERVOLTAGE_TX      50
+#define OVERTEMPERATURE_TX  60
+#define FOD_ACTIVE          1
+/* ALERTS LIMITS RX */
+#define OVERCURRENT_RX      3
+#define OVERVOLTAGE_RX      50
+#define OVERTEMPERATURE_RX  60
+#define MIN_VOLTAGE         3.0
+
+/* LOC TIMING */
+#define REACTION_TIME       2    //seconds
+
 static const char *TAG = "MAIN";
 //todo: create an esp_now.c file and leave this main clean
 //todo: create a wifi.c file and leave this main clean
@@ -9,7 +23,14 @@ static QueueHandle_t espnow_queue;
 static QueueHandle_t localization_queue;
 
 static uint8_t broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-esp_now_peer_num_t peer_num = { 0, 0 }; //use esp_now_peer_num_t(&peer_num) to get the number of peers
+//static esp_now_peer_num_t peer_num = { 0, 0 }; //use esp_now_peer_num_t(&peer_num) to get the number of peers
+
+static pad_status pads_status[NUMBER_TX] = {PAD_DISCONNECTED};
+bool connected_pads = false;
+static scooter_status scooters_status[NUMBER_RX] = {SCOOTER_DISCONNECTED};
+static bool scooter_tobechecked[NUMBER_RX] = {false};
+
+static uint8_t Baton = 0;
 
 
 /* FreeRTOS event group to signal when we are connected*/
@@ -260,9 +281,13 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
     buf->type = type;
 
     //! find which peers to control/localize
-    //struct peer *p = peer_find(id);
-    //maybe this function needs to return a mac address to let the sending GO
-    
+    struct peer *p = peer_find(id);
+    if (p == NULL)
+    {
+        ESP_LOGE(TAG, "Peer not found");
+        return;
+    }
+
     switch (type)
     {
         case ESPNOW_DATA_BROADCAST:
@@ -270,8 +295,9 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             break;
     
         case ESPNOW_DATA_LOCALIZATION:
-            // switch on/off
             // ask for received voltage after a minimum time
+            buf->field_1 = REACTION_TIME;
+            buf->field_2 = buf->field_3 = buf->field_4 = 0;
             break;
 
         case ESPNOW_DATA_ALERT:
@@ -283,7 +309,30 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             break;
         
         case ESPNOW_DATA_CONTROL:
-            // switch on/off
+            //!first message --> set alerts limits!
+            if ((p->type == PAD) && (pads_status[p->id - 1] == PAD_DISCONNECTED))
+            {
+                buf->field_1 = OVERCURRENT_TX;
+                buf->field_2 = OVERVOLTAGE_TX;
+                buf->field_3 = OVERTEMPERATURE_TX;
+                buf->field_4 = FOD_ACTIVE;
+                ESP_LOGW(TAG, "SETTING LOCAL LIMITS");
+            }
+            else if ((p->type == SCOOTER) && (scooters_status[p->id - NUMBER_TX - 1] == SCOOTER_DISCONNECTED))
+            {
+                ESP_LOGW(TAG, "SETTING REMOTE LIMITS");
+                buf->field_1 = OVERCURRENT_RX;
+                buf->field_2 = OVERVOLTAGE_RX;
+                buf->field_3 = OVERTEMPERATURE_RX;
+                buf->field_4 = MIN_VOLTAGE;
+            }
+            else //!ANY OTHER MSG - SWITCH ON/OFF
+            {
+                //for the alerts 
+                buf->field_1 = p->full_power;
+                buf->field_2 = p->low_power;
+                buf->field_3 = buf->field_4 = 0;
+            }
             break;
 
         default:
@@ -294,6 +343,115 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
     // CRC
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, sizeof(espnow_data_t));
 }
+
+static uint8_t parse_localization_message(espnow_data_t *data)
+{
+    static float start = 0;
+    static float stop = 1;
+
+    //ALL 0 --> START
+    if ((data->field_1 == start) && (data->field_2 == start) && (data->field_3 == start) && (data->field_4 == start))
+        return LOCALIZATION_START;
+    //ALL 1 --> STOP
+    else if ((data->field_1 == stop) && (data->field_2 == stop) && (data->field_3 == stop) && (data->field_4 == stop))
+            return LOCALIZATION_STOP;
+        else
+            return LOCALIZATION_CHECK;
+}
+
+static bool loc_pads_off()
+{
+    for (uint8_t i = 0; i < NUMBER_TX; i++)
+    {
+        if (pads_status[i] == PAD_LOW_POWER)
+            return false;
+    }
+    return true;
+}
+
+static uint8_t find_pad_position()
+{
+    for (uint8_t i = 0; i < NUMBER_TX; i++)
+    {
+        if (pads_status[i] == PAD_LOW_POWER)
+            return i;
+    }
+    return 0;
+}
+
+static bool pass_the_baton(espnow_data_t *loc_data)
+{
+    bool all_scooter_checked = true;
+    //checking there is no scooter to be checked with the current pad yet
+    for (uint8_t i = 0; i < NUMBER_RX; i++)
+    {
+        if (scooter_tobechecked[i])
+            all_scooter_checked = false;
+    }
+    //checking there is at least one pad available
+    bool pad_available = false;
+    for (uint8_t i = 0; i < NUMBER_TX; i++)
+    {
+        if (pads_status[i] == PAD_CONNECTED)
+            pad_available = true;
+    }
+
+    if ((all_scooter_checked) && (pad_available))
+    {
+        static bool baton_passed = false;
+        
+        while(!baton_passed)
+        {
+            if (pads_status[Baton] == PAD_LOW_POWER)
+            {
+                //switch off the previous pad
+                struct peer *p = peer_find(Baton + 1);
+                if (p == NULL)
+                {
+                    ESP_LOGE(TAG, "Peer not found");
+                    return 0;
+                }
+                p->low_power = 0;
+                pads_status[Baton] = PAD_CONNECTED;
+                espnow_data_prepare(loc_data, ESPNOW_DATA_CONTROL, p->id);
+                if(esp_now_send(p->mac, (uint8_t *)loc_data, sizeof(espnow_data_t)) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Send error");
+                    return 0;
+                }
+
+            }
+            else if ((pads_status[Baton] == PAD_CONNECTED) && (loc_pads_off()))
+            {                
+                //switch on the new pad
+                struct peer *p = peer_find(Baton + 1);
+                if (p == NULL)
+                {
+                    ESP_LOGE(TAG, "Peer not found");
+                    return 0;
+                }
+                p->low_power = 1;
+                pads_status[Baton] = PAD_LOW_POWER;
+                espnow_data_prepare(loc_data, ESPNOW_DATA_CONTROL, p->id);
+                if(esp_now_send(p->mac, (uint8_t *)loc_data, sizeof(espnow_data_t)) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Send error");
+                    return 0;
+                }
+                baton_passed = true;
+                ESP_LOGW(TAG, "BATON PASSED TO %d", Baton +1);
+            }
+
+            Baton = (Baton + 1) % NUMBER_TX;
+            
+        }
+
+        return 1;
+    }
+
+    return 0;
+}
+
 
 static void localization_task(void *pvParameter)
 {
@@ -308,31 +466,76 @@ static void localization_task(void *pvParameter)
 
     while (xQueueReceive(localization_queue, &evt, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGW(TAG, "LOCALIZATION REQUEST RECEIVED");
+        //ESP_LOGW(TAG, "LOCALIZATION REQUEST RECEIVED");
 
         espnow_event_recv_cb_t *recv_cb = &evt.info.recv_cb;
         espnow_data_t *recv_data = (espnow_data_t *)recv_cb->data;
 
-        /*
-        espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
-        if(esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+        // check which message type we received
+        uint8_t type = parse_localization_message(recv_data);
+
+        switch(type)
         {
-            ESP_LOGE(TAG, "Send error");
+            case LOCALIZATION_START:
+                ESP_LOGW(TAG, "LOCALIZATION START");
+
+                if (pass_the_baton(localization_data))
+                    scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = true;
+
+                // send command to get voltage after a minimum time
+                espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
+                if(esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Send error");
+                }
+                
+                break;
+            
+            case LOCALIZATION_CHECK:
+                ESP_LOGW(TAG, "LOCALIZATION CHECK");
+
+                scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = false;
+                
+                if (pass_the_baton(localization_data))
+                    scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = true;
+
+                // send command to get voltage after a minimum time
+                espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
+                if(esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Send error");
+                }
+                
+                break;
+
+            case LOCALIZATION_STOP: //voltage thresh is passed - position found
+                ESP_LOGW(TAG, "LOCALIZATION STOPPED");
+                scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = false;
+                //find which pad is on
+                uint8_t pad_positition = find_pad_position();
+                struct peer *p = peer_find(pad_positition + 1);
+                if (p == NULL)
+                {
+                    ESP_LOGE(TAG, "Peer not found!");
+                    break;
+                }
+                p->low_power = 0;
+                p->full_power = 1;
+                pads_status[pad_positition] = PAD_FULL_POWER;
+                scooters_status[recv_data->id - NUMBER_TX - 1] = SCOOTER_CHARGING;
+                ESP_LOGW(TAG, "SCOOTER %d CHARGING ON PAD %d", recv_data->id - NUMBER_TX, pad_positition + 1);
+                espnow_data_prepare(localization_data, ESPNOW_DATA_CONTROL, p->id);
+                if(esp_now_send(p->mac, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Send error");
+                    break;
+                }
+                break;
+
+            default:
+                ESP_LOGE(TAG, "Localization message type error: %d", type);
+                break;
         }
-        */
-        
-
-        // received from the scooter -- meaning the scooter does not have a position
-        // are there pads available? --> if no --> tell the scooter to try again later
-        // data (initial message?) --> add scooter to the list to be detected
-        // data (checked message?) --> remove scooter from the list to be checked
-
-        // next cycle --> if one pad is on and all the scooters have sent their voltage --> switch off the pad
-        //todo: start localizing the scooter
-        // switch on one pad
-        // wait for the voltage to be received (send the request to the scooter together with the time to wait)
-        // repeat
-        
         free(recv_data);
     }
 
@@ -399,26 +602,30 @@ static void espnow_task(void *pvParameter)
                     /* If MAC address does not exist in peer list, add it to peer list. */
                     if (esp_now_is_peer_exist(recv_cb->mac_addr) == false) 
                     {
-                        //TODO: check if it is a scooter or a pad
                         //if its a scooter, there must be at least one pad connected!
-
+                        if ((unitID > NUMBER_TX) && (!connected_pads))
+                            break;
+                        
                         //avoid encryption for the first message (needs to be registered on both sides)
                         esp_now_register_peer(recv_cb->mac_addr);
 
                         // save its details into peer structure 
                         peer_add(unitID, recv_cb->mac_addr);
                         struct peer *p = peer_find(unitID);
-                        ESP_LOGW(TAG, "NEW PEER FOUND! %d : position %d", unitID, p->position);
+                        ESP_LOGW(TAG, "NEW PEER FOUND! ID: %d", unitID);
 
                         //Send unicast data to make him stop sending broadcast msg
                         espnow_data_prepare(espnow_data, ESPNOW_DATA_CONTROL, unitID);
-                        //todo: is it a scooter? if yes, add it to the queue of scooters to be localized --> localization task 
-
                         if (esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
                             ESP_LOGE(TAG, "Send error");
                         }
                         // then encrypt for future messages
                         esp_now_encrypt_peer(recv_cb->mac_addr);
+
+                        if (p->id > NUMBER_TX)   
+                            scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_CONNECTED;
+                        else
+                            pads_status[unitID - 1] = PAD_CONNECTED;
                     }
 
                 }
@@ -490,6 +697,10 @@ static esp_err_t espnow_init(void)
         return ESP_FAIL;
     }
 
+    // free the buffers at exit //!needs to call a function
+    //atexit(free(buffer));
+    //atexit(free(loc_buffer));
+
     return ESP_OK;
 }
 
@@ -508,7 +719,7 @@ void app_main(void)
 
     wifi_init();
     espnow_init();
-    peer_init(MAX_PEERS);
+    peer_init(NUMBER_RX + NUMBER_TX);
     //todo: temperature sensor init
     //todo: sd card init
 

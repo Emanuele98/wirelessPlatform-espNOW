@@ -1,5 +1,5 @@
-#ifndef _ESPNOW_H_
-#define _ESPNOW_H_
+#ifndef ESPNOW_H
+#define ESPNOW_H
 
 #include <stdlib.h>
 #include <time.h>
@@ -44,6 +44,7 @@
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
+
 typedef enum {
     ID_ESPNOW_SEND_CB,
     ID_ESPNOW_RECV_CB,
@@ -79,6 +80,12 @@ typedef enum {
     ESPNOW_DATA_CONTROL
 } message_type;
 
+typedef enum {
+    LOCALIZATION_START,
+    LOCALIZATION_CHECK,
+    LOCALIZATION_STOP
+} localization_message_type;
+
 /* User defined field of ESPNOW data in this example. */
 //todo: define the meaning of each field based on the message type
 typedef struct { 
@@ -91,4 +98,4 @@ typedef struct {
     float field_4;                        
 } __attribute__((packed)) espnow_data_t;
 
-#endif // _ESPNOW_H_
+#endif // ESPNOW_H
