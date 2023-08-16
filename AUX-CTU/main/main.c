@@ -18,6 +18,13 @@ wpt_alert_payload_t alert_payload;
 TimerHandle_t dynamic_timer = NULL;
 TimerHandle_t alert_timer = NULL;
 
+//ALERTS LIMITS
+float OVERCURRENT;
+float OVERVOLTAGE;
+float OVERTEMPERATURE;
+bool FOD_ACTIVE;
+
+
 void espnow_data_prepare(espnow_data_t *buf, message_type type);
 
 
@@ -29,12 +36,12 @@ static void wifi_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
     ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
-    ESP_ERROR_CHECK( esp_wifi_set_mode(ESPNOW_WIFI_MODE) );
+    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK( esp_wifi_start());
     ESP_ERROR_CHECK( esp_wifi_set_channel(CONFIG_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
 
 #if CONFIG_ESPNOW_ENABLE_LONG_RANGE
-    ESP_ERROR_CHECK( esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
+    ESP_ERROR_CHECK( esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
 #endif
 }
 
@@ -82,7 +89,7 @@ static void esp_now_register_master(uint8_t *mac_addr, bool encrypt)
     }
     memset(peer, 0, sizeof(esp_now_peer_info_t));
     peer->channel = CONFIG_ESPNOW_CHANNEL;
-    peer->ifidx = ESPNOW_WIFI_IF;
+    peer->ifidx = ESP_IF_WIFI_STA;
     if (encrypt == true)
     {
         peer->encrypt = true;
@@ -295,15 +302,19 @@ static void espnow_task(void *pvParameter)
                         ESP_LOGI(TAG, "Add master "MACSTR" to peer list", MAC2STR(master_mac));
                         esp_now_register_master(master_mac, true);
 
-                        //!parse data to set local alerts limits
+                        //parse data to set local alerts limits
+                        OVERCURRENT = recv_data->field_1;
+                        OVERVOLTAGE = recv_data->field_2;
+                        OVERTEMPERATURE = recv_data->field_3;
+                        FOD_ACTIVE = recv_data->field_4;
 
-                        //!start sending measurements data to the master
-                        //if (xTimerStart(dynamic_timer, 0) != pdPASS) {
-                        //    ESP_LOGE(TAG, "Cannot start dynamic timer");
-                        //}
-                        //if (xTimerStart(alert_timer, 0) != pdPASS) {
-                        //    ESP_LOGE(TAG, "Cannot start alert timer");
-                        //}
+                        //!start sending measurements data to the master - removed for testing
+                        if (xTimerStart(dynamic_timer, 0) != pdPASS) {
+                            ESP_LOGE(TAG, "Cannot start dynamic timer");
+                        }
+                        if (xTimerStart(alert_timer, 0) != pdPASS) {
+                            ESP_LOGE(TAG, "Cannot start alert timer");
+                        }
                     }
                     else
                     {

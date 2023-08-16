@@ -11,10 +11,6 @@
 #include "freertos/semphr.h"
 #include "freertos/FreeRTOS.h"
 
-//LIMITS BEFORE SENDING ALERTS
-#define OVER_CURRENT                    1								 	   /**< Maximum current tolerated */
-#define OVER_VOLTAGE                    185 	                               /**< Maximum voltage tolerated */
-#define OVER_TEMPERATURE                40									   /**< Maximum temperature tolerated */
 
 #define DYNAMIC_PARAM_TIMER_INTERVAL    pdMS_TO_TICKS(20)                      /**< Timer synced to Dynamic parameter characteristic (20 ms). */
 #define ALERT_PARAM_TIMER_INTERVAL      pdMS_TO_TICKS(60)				       /**< Timer synced to Alert parameter characteristic (60 ms). */

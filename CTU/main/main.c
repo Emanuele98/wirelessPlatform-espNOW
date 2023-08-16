@@ -35,14 +35,14 @@ static uint8_t Baton = 0;
 
 /* FreeRTOS event group to signal when we are connected*/
 
-//static EventGroupHandle_t s_wifi_event_group;
+static EventGroupHandle_t s_wifi_event_group;
 
 
 /**
  * @brief Handler for WiFi and IP events
  * 
  */
-/*
+
 static void wifi_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
@@ -56,10 +56,10 @@ static void wifi_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "retry to connect to the AP");
     }
 }
-*/
+
 
 /* WiFi should start before using ESPNOW */
-/*
+
 static void wifi_init(void)
 {
     s_wifi_event_group = xEventGroupCreate();
@@ -84,7 +84,7 @@ static void wifi_init(void)
     };
     ESP_LOGI(TAG, "Setting WiFi configuration SSID %s...", wifi_config.sta.ssid);
 
-    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
+    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_APSTA) );
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 
     ESP_ERROR_CHECK( esp_wifi_start());
@@ -99,15 +99,15 @@ static void wifi_init(void)
             portMAX_DELAY);
     // xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually happened.
     if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID: manu");
+        ESP_LOGI(TAG, "connected to ap SSID: %s", CONFIG_WIFI_SSID);
         
         // print the primary and secondary channels
-        //uint8_t primary, secondary;
-        //esp_wifi_get_channel(&primary, &secondary);
-        //ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);       
+        uint8_t primary, secondary;
+        esp_wifi_get_channel(&primary, &secondary);
+        ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);       
         
     } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID: manu");
+        ESP_LOGI(TAG, "Failed to connect to SSID: %s", CONFIG_WIFI_SSID);
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }
@@ -120,10 +120,10 @@ static void wifi_init(void)
     ESP_ERROR_CHECK( esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
 #endif
 }
-*/
+
 
 /* WiFi should start before using ESPNOW */
-
+/*
 static void wifi_init(void)
 {
     ESP_ERROR_CHECK(esp_netif_init());
@@ -131,14 +131,15 @@ static void wifi_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
     ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
-    ESP_ERROR_CHECK( esp_wifi_set_mode(ESPNOW_WIFI_MODE) );
+    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK( esp_wifi_start());
     ESP_ERROR_CHECK( esp_wifi_set_channel(CONFIG_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
 
 #if CONFIG_ESPNOW_ENABLE_LONG_RANGE
-    ESP_ERROR_CHECK( esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
+    ESP_ERROR_CHECK( esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
 #endif
 }
+*/
 
 static void esp_now_register_peer(uint8_t *mac_addr)
 {
@@ -149,7 +150,7 @@ static void esp_now_register_peer(uint8_t *mac_addr)
     }
     memset(peer, 0, sizeof(esp_now_peer_info_t));
     peer->channel = CONFIG_ESPNOW_CHANNEL;
-    peer->ifidx = ESPNOW_WIFI_IF;
+    peer->ifidx = ESP_IF_WIFI_STA;
     peer->encrypt = false;
     memcpy(peer->peer_addr, mac_addr, ESP_NOW_ETH_ALEN);
     ESP_ERROR_CHECK( esp_now_add_peer(peer) );
@@ -296,6 +297,7 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
     
         case ESPNOW_DATA_LOCALIZATION:
             // ask for received voltage after a minimum time
+            //todo: exponential time based on the number of times the scooter has been checked
             buf->field_1 = REACTION_TIME;
             buf->field_2 = buf->field_3 = buf->field_4 = 0;
             break;
@@ -316,7 +318,6 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
                 buf->field_2 = OVERVOLTAGE_TX;
                 buf->field_3 = OVERTEMPERATURE_TX;
                 buf->field_4 = FOD_ACTIVE;
-                ESP_LOGW(TAG, "SETTING LOCAL LIMITS");
             }
             else if ((p->type == SCOOTER) && (scooters_status[p->id - NUMBER_TX - 1] == SCOOTER_DISCONNECTED))
             {
@@ -381,8 +382,8 @@ static uint8_t find_pad_position()
 
 static bool pass_the_baton(espnow_data_t *loc_data)
 {
-    bool all_scooter_checked = true;
     //checking there is no scooter to be checked with the current pad yet
+    bool all_scooter_checked = true;
     for (uint8_t i = 0; i < NUMBER_RX; i++)
     {
         if (scooter_tobechecked[i])
@@ -398,7 +399,8 @@ static bool pass_the_baton(espnow_data_t *loc_data)
 
     if ((all_scooter_checked) && (pad_available))
     {
-        static bool baton_passed = false;
+        ESP_LOGW(TAG, "PASSING THE BATON");
+        bool baton_passed = false;
         
         while(!baton_passed)
         {
@@ -419,6 +421,7 @@ static bool pass_the_baton(espnow_data_t *loc_data)
                     ESP_LOGE(TAG, "Send error");
                     return 0;
                 }
+                ESP_LOGW(TAG, "pad switched OFF: %d", Baton + 1);
 
             }
             else if ((pads_status[Baton] == PAD_CONNECTED) && (loc_pads_off()))
@@ -439,11 +442,11 @@ static bool pass_the_baton(espnow_data_t *loc_data)
                     return 0;
                 }
                 baton_passed = true;
-                ESP_LOGW(TAG, "BATON PASSED TO %d", Baton +1);
+                ESP_LOGW(TAG, "pad switched ON: %d", Baton + 1);
             }
 
             Baton = (Baton + 1) % NUMBER_TX;
-            
+            //ESP_LOGW(TAG, "BATON: %d", Baton);
         }
 
         return 1;
@@ -499,13 +502,14 @@ static void localization_task(void *pvParameter)
                 if (pass_the_baton(localization_data))
                     scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = true;
 
+                //!you can add a field about whether the scooter needs to be checked or not to avoid useless messages
                 // send command to get voltage after a minimum time
                 espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
                 if(esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
                 {
                     ESP_LOGE(TAG, "Send error");
                 }
-                
+        
                 break;
 
             case LOCALIZATION_STOP: //voltage thresh is passed - position found

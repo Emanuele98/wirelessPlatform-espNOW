@@ -19,16 +19,6 @@
 
 #define UNIT_ROLE SCOOTER1
 
-/* ESPNOW can work in both station and softap mode. It is configured in menuconfig. */
-#if CONFIG_ESPNOW_WIFI_MODE_STATION
-#define ESPNOW_WIFI_MODE WIFI_MODE_STA
-#define ESPNOW_WIFI_IF   ESP_IF_WIFI_STA
-#else
-#define ESPNOW_WIFI_MODE WIFI_MODE_AP
-#define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
-#endif
-// for wifi coex --> use WIFI_MODE_APSTA
-
 #define ESPNOW_QUEUE_SIZE           10
 #define BROADCAST_TIMEGAP           pdMS_TO_TICKS(1000)
 #define ALERT_TIMEGAP               pdMS_TO_TICKS(200)

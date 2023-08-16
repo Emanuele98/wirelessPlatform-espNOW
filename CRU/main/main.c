@@ -332,6 +332,12 @@ TimerHandle_t alert_timer = NULL;
 
 scooter_position_t scooter_position = SCOOTER_POSITION_UNKNOWN;
 
+//ALERTS LIMITS
+float OVERCURRENT = 0;
+float OVERTEMPERATURE = 0;
+float OVERVOLTAGE = 0;
+float MIN_VOLTAGE = 0;
+
 void espnow_data_prepare(espnow_data_t *buf, message_type type);
 
 
@@ -343,12 +349,12 @@ static void wifi_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
     ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
-    ESP_ERROR_CHECK( esp_wifi_set_mode(ESPNOW_WIFI_MODE) );
+    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK( esp_wifi_start());
     ESP_ERROR_CHECK( esp_wifi_set_channel(CONFIG_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
 
 #if CONFIG_ESPNOW_ENABLE_LONG_RANGE
-    ESP_ERROR_CHECK( esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
+    ESP_ERROR_CHECK( esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
 #endif
 }
 
@@ -399,7 +405,7 @@ static void esp_now_register_master(uint8_t *mac_addr, bool encrypt)
     }
     memset(peer, 0, sizeof(esp_now_peer_info_t));
     peer->channel = CONFIG_ESPNOW_CHANNEL;
-    peer->ifidx = ESPNOW_WIFI_IF;
+    peer->ifidx = ESP_IF_WIFI_STA;
     if (encrypt == true)
     {
         peer->encrypt = true;
@@ -506,19 +512,18 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type)
             }
             else if (scooter_position == SCOOTER_POSITION_BEING_LOCALIZED)
             {
-                buf->field_1 = dynamic_payload.voltage;
+                buf->field_1 = 1;
                 buf->field_2 = buf->field_3 = buf->field_4 = 0;
-                if (buf->field_1) //todo: is it higher than the min_voltage_threshold?
+                if (dynamic_payload.voltage) //todo: is it higher than the min_voltage_threshold?
+                {
                     scooter_position = SCOOTER_POSITION_FOUND;
-            }
-            else if (scooter_position == SCOOTER_POSITION_FOUND)
-            {
-                buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = 1;
-                if (xTimerStart(dynamic_timer, 0) != pdPASS) {
-                    ESP_LOGE(TAG, "Cannot start dynamic timer");
-                }
-                if (xTimerStart(alert_timer, 0) != pdPASS) {
-                    ESP_LOGE(TAG, "Cannot start alert timer");
+                    buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = 1;
+                    if (xTimerStart(dynamic_timer, 0) != pdPASS) {
+                        ESP_LOGE(TAG, "Cannot start dynamic timer");
+                    }
+                    if (xTimerStart(alert_timer, 0) != pdPASS) {
+                        ESP_LOGE(TAG, "Cannot start alert timer");
+                    }
                 }
             }
             break;
@@ -633,7 +638,11 @@ static void espnow_task(void *pvParameter)
                         ESP_LOGI(TAG, "Add master "MACSTR" to peer list", MAC2STR(master_mac));
                         esp_now_register_master(master_mac, true);
 
-                        //todo: parse data to set local alerts limits
+                        //parse data to set local alerts limits
+                        OVERCURRENT = recv_data->field_1;
+                        OVERVOLTAGE = recv_data->field_2;
+                        OVERTEMPERATURE = recv_data->field_3;
+                        MIN_VOLTAGE = recv_data->field_4;
 
                         // START LOCALIZATION PROCEDURE
                         espnow_data_prepare(espnow_data, ESPNOW_DATA_LOCALIZATION);
@@ -652,7 +661,7 @@ static void espnow_task(void *pvParameter)
                     ESP_LOGI(TAG, "Receive LOCALIZATION message");
                     
                     //send the voltage back after reaction  time
-                    vTaskDelay(recv_data->field_1);
+                    vTaskDelay(recv_data->field_1*1000/portTICK_PERIOD_MS);
                     espnow_data_prepare(espnow_data, ESPNOW_DATA_LOCALIZATION);
                     if (esp_now_send(master_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
                         ESP_LOGE(TAG, "Send error");

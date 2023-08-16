@@ -1,17 +1,5 @@
 menu "AUX-CTU Configuration"
 
-    choice ESPNOW_WIFI_MODE
-        prompt "WiFi mode"
-        default ESPNOW_WIFI_MODE_STATION
-        help
-            WiFi mode(station or softap).
-
-        config ESPNOW_WIFI_MODE_STATION
-            bool "Station"
-        config ESPNOW_WIFI_MODE_STATION_SOFTAP
-            bool "Softap"
-    endchoice
-
     config ESPNOW_PMK
         string "ESPNOW primary master key"
         default "pmk1234567890123"
