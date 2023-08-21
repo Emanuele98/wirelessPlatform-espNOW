@@ -21,8 +21,7 @@
 
 #define ESPNOW_QUEUE_SIZE           10
 #define BROADCAST_TIMEGAP           pdMS_TO_TICKS(1000)
-#define ALERT_TIMEGAP               pdMS_TO_TICKS(200)
-#define DYNAMIC_TIMEGAP             pdMS_TO_TICKS(2000)
+#define ALERT_TIMEGAP               pdMS_TO_TICKS(100)
 
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
@@ -73,6 +72,14 @@ typedef enum {
     SCOOTER3,
     SCOOTER4,
 } peer_id;
+
+typedef enum {
+    PAD_DISCONNECTED,       //when the pad is not connected
+    PAD_CONNECTED,          //when the pad is connected 
+    PAD_LOW_POWER,          //when the pad is on low power mode
+    PAD_FULL_POWER,         //when the pad is on full power mode
+    PAD_FULLY_CHARGED       //when the pad is off but a fully charged scooter is still present on it
+} pad_status;
 
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct

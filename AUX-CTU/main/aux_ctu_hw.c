@@ -17,7 +17,36 @@ extern struct timeval tv_start;
 //timer
 struct timeval tv_stop;
 
+/* Keeps output states in memory */
+bool low_power, full_power, or_gate;
+
+static float volt, curr, t1, t2;
+static uint8_t counter = 0;
+
+extern SemaphoreHandle_t i2c_sem;
+extern wpt_dynamic_payload_t dynamic_payload;
+
 static const char* TAG = "HARDWARE";
+
+
+esp_err_t i2c_master_init(void)
+{
+    int i2c_master_port = I2C_MASTER_NUM;
+
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = I2C_MASTER_FREQ_HZ,
+    };
+
+    i2c_param_config(i2c_master_port, &conf);
+
+    return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
+}
+
 
 /**
  * @brief read sensor data
@@ -170,29 +199,65 @@ float i2c_read_temperature_sensor(bool n_temp_sens)
         return value;
 }
 
+//read dynamic parameters from I2C sensors
+void hw_readings_timeout(void)
+{
+    if (xSemaphoreTake(i2c_sem, portMAX_DELAY) == pdTRUE)
+    {
+        switch(counter)
+        {
+            //voltage
+            case 0:
+                counter++;
+                volt = i2c_read_voltage_sensor();
+                if (volt !=-1)
+                    dynamic_payload.voltage = volt;
+                break;
+            
+            //current
+            case 1:
+                counter++;
+                curr = i2c_read_current_sensor();
+                if (curr != -1)
+                    dynamic_payload.current = curr;
+                break;
+
+            //temperature 1
+            case 2:
+                counter++;
+                t1 = i2c_read_temperature_sensor(0);
+                if (t1 != -1)
+                    dynamic_payload.temp1 = t1;
+                break;
+
+            //temperature 2
+            case 3:
+                counter = 0;
+                t2 = i2c_read_temperature_sensor(1);
+                if (t2 != -1)
+                    dynamic_payload.temp2 = t2;
+                break;
+            default:
+                xSemaphoreGive(i2c_sem);
+                break;
+        }
+    }
+}
+
 void enable_full_power_output(void)
 {
     if ((!or_gate) && (!low_power))
     {
         //enable only if OR GATE is low
-        full_power = 1;
+        full_power = true;
         gpio_set_level(FULL_POWER_OUT_PIN, 1);
-        //gettimeofday(&tv_stop, NULL);
-        //float time_sec = tv_stop.tv_sec - tv_start.tv_sec + 1e-6f * (tv_stop.tv_usec - tv_start.tv_usec);
-        //printf("---Time: %f sec\n", time_sec);
-        ESP_LOGI(TAG, "SWITCHIN FULL POWER ON!");
     }
 }
 
 void disable_full_power_output(void)
 {
-    full_power = 0;
+    full_power = false;
     gpio_set_level(FULL_POWER_OUT_PIN, 0);
-    //gettimeofday(&tv_stop, NULL);
-    //float time_sec = tv_stop.tv_sec - tv_start.tv_sec + 1e-6f * (tv_stop.tv_usec - tv_start.tv_usec);
-    //printf("---Time: %f sec\n", time_sec);
-    ESP_LOGI(TAG, "SWITCHIN FULL POWER OFF!");
-    FOD_counter = 0;
 }
 
 void enable_low_power_output(void)
@@ -200,23 +265,15 @@ void enable_low_power_output(void)
     //enable only if OR GATE is low
     if ((!or_gate) && (!full_power))
     {
-        low_power = 1;
+        low_power = true;
         gpio_set_level(LOW_POWER_OUT_PIN, 1);
-        //gettimeofday(&tv_stop, NULL);
-        //float time_sec = tv_stop.tv_sec - tv_start.tv_sec + 1e-6f * (tv_stop.tv_usec - tv_start.tv_usec);
-        //printf("---Time: %f sec\n", time_sec);
-        ESP_LOGI(TAG, "SWITCHIN LOW POWER ON");
     }
 }
 
 void disable_low_power_output(void)
 {
-    low_power = 0;
+    low_power = false;
     gpio_set_level(LOW_POWER_OUT_PIN, 0);
-    //gettimeofday(&tv_stop, NULL);
-    //float time_sec = tv_stop.tv_sec - tv_start.tv_sec + 1e-6f * (tv_stop.tv_usec - tv_start.tv_usec);
-    //printf("---Time: %f sec\n", time_sec);
-    ESP_LOGI(TAG, "SWITCHIN LOW POWER OFF");
 }
 
 void enable_OR_output(void)
@@ -224,27 +281,46 @@ void enable_OR_output(void)
     //enable only if both low and full modes are
     if ((!low_power) && (!full_power))
     {
-        or_gate = 1;
+        or_gate = true;
         gpio_set_level(OR_GATE, 1);
-        //gettimeofday(&tv_stop, NULL);
-        //float time_sec = tv_stop.tv_sec - tv_start.tv_sec + 1e-6f * (tv_stop.tv_usec - tv_start.tv_usec);
-        //printf("---Time: %f sec\n", time_sec);
-        ESP_LOGI(TAG, "ENABLE OR GATE");
     }
 }
 
 void disable_OR_output(void)
 {
-    or_gate = 0;
+    or_gate = false;
     gpio_set_level(OR_GATE, 0);
-    //gettimeofday(&tv_stop, NULL);
-    //float time_sec = tv_stop.tv_sec - tv_start.tv_sec + 1e-6f * (tv_stop.tv_usec - tv_start.tv_usec);
-    //printf("---Time: %f sec\n", time_sec);
-    ESP_LOGI(TAG, "DISABLE OR GATE");
 }
 
-void gpio_isr_handler(void* arg)
+void safely_enable_full_power(void) 
 {
-    uint32_t gpio_num = (uint32_t) arg;
-    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+    //disable interfaces
+    disable_low_power_output();
+    disable_OR_output();
+    //wait
+    vTaskDelay(OR_TIME_GAP);
+    //enable power
+    enable_full_power_output();
+}
+
+void safely_enable_low_power(void)
+{
+    //disable interfaces
+    disable_full_power_output();
+    disable_OR_output();
+    //wait
+    vTaskDelay(OR_TIME_GAP);
+    //enable power
+    enable_low_power_output();
+}
+
+void safely_switch_off(void)
+{
+    //disable interfaces
+    disable_full_power_output();
+    disable_low_power_output();
+    //wait
+    vTaskDelay(OR_TIME_GAP);
+    //enable OR gate
+    enable_OR_output();
 }

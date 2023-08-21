@@ -21,8 +21,7 @@
 
 #define ESPNOW_QUEUE_SIZE           10
 #define BROADCAST_TIMEGAP           pdMS_TO_TICKS(1000)
-#define ALERT_TIMEGAP               pdMS_TO_TICKS(200)
-#define DYNAMIC_TIMEGAP             pdMS_TO_TICKS(2000)
+#define ALERT_TIMEGAP               pdMS_TO_TICKS(100)
 
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)

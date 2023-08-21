@@ -4,32 +4,36 @@
 #include <math.h>
 #include <stdint.h>
 #include "driver/i2c.h"
-#include "driver/gpio.h"
 #include "esp_log.h"
-
-#include "freertos/timers.h"
-#include "freertos/semphr.h"
+#include "driver/gpio.h"
+#include "driver/adc.h"
+#include "esp_adc_cal.h"
+#include "driver/gpio.h"
+//watchdog
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "espnow.h"
+
+/* adc */
+#define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
+// check specific eFuse Vref with espefuse.py --port COMx adc_info
+#define NO_OF_SAMPLES   2000          //Multisampling
 
 
-#define DYNAMIC_PARAM_TIMER_INTERVAL    pdMS_TO_TICKS(20)                      /**< Timer synced to Dynamic parameter characteristic (20 ms). */
-#define ALERT_PARAM_TIMER_INTERVAL      pdMS_TO_TICKS(60)				       /**< Timer synced to Alert parameter characteristic (60 ms). */
+#define ALERT_PARAM_TIMER_INTERVAL      pdMS_TO_TICKS(100)				       /**< Timer synced to Alert parameter characteristic (60 ms). */
 
-#define VOLTAGE_IN_PIN           GPIO_NUM_26           /* GPIO26 */
-#define GPIO_INPUT_PIN_SEL       (1ULL<<VOLTAGE_IN_PIN)
+#define I2C_MASTER_SCL_IO 19                                  /*!< gpio number for I2C master clock */
+#define I2C_MASTER_SDA_IO 18                                  /*!< gpio number for I2C master data  */
 
-//#define I2C_MASTER_SCL_IO 19                                  /*!< gpio number for I2C master clock */
-//#define I2C_MASTER_SDA_IO 18                                  /*!< gpio number for I2C master data  */
-
-#define I2C_MASTER_SCL_IO 22                                  /*!< gpio number for I2C master clock */
-#define I2C_MASTER_SDA_IO 21                                  /*!< gpio number for I2C master data  */
 #define I2C_MASTER_NUM     1                                  /*!< I2C port number for master dev */
 #define I2C_MASTER_FREQ_HZ 400000                             /*!< I2C master clock frequency */
 #define I2C_MASTER_TX_BUF_DISABLE 0                           /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE 0                           /*!< I2C master doesn't need buffer */
 
 #define V_A_SENSOR_ADDR 0x40  /*!< slave address for voltage and current sensor */
-#define T_SENSOR_ADDR 0x4A    /*!< slave address for temperature sensor */
+#define T1_SENSOR_ADDR 0x48    /*!< slave address for first temperature sensor */
+#define T2_SENSOR_ADDR 0x49    /*!< slave address for second temperature sensor */
 #define V_REGISTER_ADDR 0x02  /* bus voltage register address */
 #define A_REGISTER_ADDR 0x01  /* shunt register address */
 #define T_REGISTER_ADDR 0x00  /* temperature register address */
@@ -41,21 +45,9 @@
 #define ACK_VAL 0x0                             /*!< I2C ack value */
 #define NACK_VAL 0x1                            /*!< I2C nack value */
 
-//TODO: ADJUST THESE VALUES
+void init_adc(void);
+void get_temp(void);
+void get_adc(void);
 
-/* Critical error values (arbitrary values) */
-#define LOCAL_OTP                    60                // Local fault indicator for overtemperature (in celsius)
-#define LOCAL_OVP                    10000             // Local fault indicator for overvoltage (in mV)
-#define LOCAL_OCP                    10000             // Local fault indicator for overcurrent (in mA)
-
-//timers
-TimerHandle_t dynamic_t_handle, alert_t_handle;
-
-/* Semaphore used to protect against I2C reading simultaneously */
-SemaphoreHandle_t i2c_sem;
-
-float i2c_read_voltage_sensor(void);
-float i2c_read_current_sensor(void);
-float i2c_read_temperature_sensor(void);
 
 #endif

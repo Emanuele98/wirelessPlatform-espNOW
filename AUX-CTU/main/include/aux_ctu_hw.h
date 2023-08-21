@@ -8,9 +8,12 @@
 #include "esp_log.h"
 #include <sys/time.h>
 #include "freertos/queue.h"
+#include "freertos/timers.h"
 #include "led_strip.h"
+#include "espnow.h"
 
-
+#define OR_TIME_GAP                 pdMS_TO_TICKS(30)
+#define HW_READINGS_TIMER_PERIOD    pdMS_TO_TICKS(20)
 
 /* Arbitrary pin values */
 #define FULL_POWER_OUT_PIN           GPIO_NUM_26           /* GPIO26 */
@@ -48,65 +51,16 @@
 //todo: add local check of FPGA for Foreign Object Detection
 //todo: FOD --> switch off locally --> send through alert chr --> CTU will know the pad is off already
 
-/* Keeps output states in memory */
-uint8_t low_power;
-uint8_t full_power;
-uint8_t or_gate;
+void hw_readings_timeout(void);
 
-uint64_t FOD_counter;
+void safely_enable_full_power(void); 
 
-/* Semaphore used to protect against I2C reading simultaneously */
-SemaphoreHandle_t i2c_sem;
+void safely_enable_low_power(void);
 
-extern xQueueHandle gpio_evt_queue;
+void safely_switch_off(void);
 
-float i2c_read_voltage_sensor(void);
-float i2c_read_current_sensor(void);
-float i2c_read_temperature_sensor(bool n_temp_sens);
-
-/** 
- * @brief Power FULL POWER interface to ON
- * @details Changes the current state of the FULL POWER power output to ON.
-*/
-void enable_full_power_output(void);
-
-/** 
- * @brief Power FULL POWER interface to OFF
- * @details Changes the current state of the FULL POWER power output to OFF.
-*/
-void disable_full_power_output(void);
-
-/** 
- * @brief Power LOW POWER interface to ON
- * @details Changes the current state of the LOW POWER power output to ON.
-*/
-void enable_low_power_output(void);
-
-/** 
- * @brief Power LOW POWER interface to OFF
- * @details Changes the current state of the LOW POWER power output to OFF.
-*/
-void disable_low_power_output(void);
-
-/**
- * @brief Enable OR gate
- * @details Avoid interferences between the pads
- * 
- */
-void enable_OR_output(void);
-
-/**
- * @brief Disable OR gate
- * @details Allow circuit to be switched on
- * 
- */
-void disable_OR_output(void);
+esp_err_t i2c_master_init(void);
 
 
-/**
- * @brief Interrupt Service handler
- * @details Called when the input from the FPGA becomes high
- * 
- */void gpio_isr_handler(void* arg);
 
 #endif

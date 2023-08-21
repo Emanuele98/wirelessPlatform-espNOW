@@ -1,8 +1,5 @@
-#pragma once
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef _LED_STRIP_H_
+#define _LED_STRIP_H_
 
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +8,8 @@ extern "C" {
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "freertos/timers.h"
 #include "esp_err.h"
 #include "driver/rmt.h"
 #include "aux_ctu_hw.h"
@@ -28,13 +27,6 @@ extern "C" {
 /* Leds charging timer duration*/
 #define CHARGING_LEDS_TIMER_PERIOD 200
 
-
-/* virtual switch for default led mode */
-bool strip_enable;
-/* virtual switch for the led misalignment mode */
-bool strip_misalignment;
-/* virtual switch foe the charging mode */
-bool strip_charging;
 
 /**
 * @brief LED Strip Type
@@ -158,19 +150,19 @@ void led_strip_hsv2rgb(uint32_t h, uint32_t s, uint32_t v, uint32_t *r, uint32_t
  * @brief Function used by the timer for the default connected led state
  * 
  */
-void connected_leds(void *arg);
+void connected_leds(void);
 
 /**
  * @brief Function used for orange blinking when the scooter is misaligned 
  *  
  */
-void misaligned_leds(void *arg);
+void misaligned_leds(void);
 
 /**
  * @brief Function used for orange blinking when the scooter is charging
  * 
  */
-void charging_state(void *arg);
+void charging_state(void);
 
 
 /**
@@ -181,7 +173,4 @@ void charging_state(void *arg);
 void set_strip(uint8_t r, uint8_t g, uint8_t b);  
 
 
-
-#ifdef __cplusplus
-}
-#endif
+#endif /* _LED_STRIP_H_ */

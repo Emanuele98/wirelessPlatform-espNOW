@@ -23,8 +23,15 @@
 #define UNIT_ROLE MASTER
 
 
-#define ESPNOW_QUEUE_SIZE           20
-#define ESPNOW_MAXDELAY             pdMS_TO_TICKS(1000)
+#define ESPNOW_TASK_SIZE        4096
+#define LOC_TASK_SIZE           2048
+#define ESPNOW_TASK_PRIORITY    8
+#define LOC_TASK_PRIORITY       9
+#define ESPNOW_QUEUE_SIZE       50
+#define LOC_QUEUE_SIZE          25
+#define ESPNOW_MAXDELAY         pdMS_TO_TICKS(1000)
+
+#define PEER_DYNAMIC_TIMER      1000
 
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)

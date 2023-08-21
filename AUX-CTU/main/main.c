@@ -12,11 +12,21 @@ static uint8_t master_mac[ESP_NOW_ETH_ALEN] = { 0 };
 static uint8_t broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 esp_now_peer_num_t peer_num = {0, 0};
 
-wpt_dynamic_payload_t dynamic_payload;
 wpt_alert_payload_t alert_payload;
 
-TimerHandle_t dynamic_timer = NULL;
-TimerHandle_t alert_timer = NULL;
+TimerHandle_t dynamic_timer, alert_timer, connected_leds_timer, misaligned_leds_timer, charging_leds_timer, hw_readings_timer;
+
+/* virtual switch for default led mode */
+bool strip_enable;
+/* virtual switch for the led misalignment mode */
+bool strip_misalignment;
+/* virtual switch foe the charging mode */
+bool strip_charging;
+
+/* Semaphore used to protect against I2C reading simultaneously */
+SemaphoreHandle_t i2c_sem;
+wpt_dynamic_payload_t dynamic_payload;
+
 
 //ALERTS LIMITS
 float OVERCURRENT;
@@ -45,14 +55,10 @@ static void wifi_init(void)
 #endif
 }
 
-void dynamic_timer_callback(TimerHandle_t xTimer)
+static int count = 0;
+void dynamic_timer_callback(void)
 {
-    //save values to peer structure
-    //todo: to be done into the hardware readings
-    dynamic_payload.voltage = 0;
-    dynamic_payload.current = 0;
-    dynamic_payload.temp1 = 0;
-    dynamic_payload.temp2 = 0;
+    count ++;
     //send them to master //
     espnow_data_t *buf = malloc(sizeof(espnow_data_t));
     if (buf == NULL) {
@@ -68,17 +74,35 @@ void dynamic_timer_callback(TimerHandle_t xTimer)
     free(buf);
 }
 
-void alert_timer_callback(TimerHandle_t xTimer)
+void alert_timer_callback(void)
 {
-    //check if values are in range
-    //if not, send alert to master
-    /*
-    espnow_data_prepare(buf, ESP_NOW_DATA_ALERT);
-    if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
-        ESP_LOGE(TAG, "Send error");
+    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
+    if (buf == NULL) {
+        ESP_LOGE(TAG, "Malloc  buffer fail");
+        free(buf);
+        return;
     }
-    */
+    
+    //check if values are in range
+    if (dynamic_payload.voltage > OVERVOLTAGE)
+        alert_payload.overvoltage = true;
+    if (dynamic_payload.current > OVERCURRENT)
+        alert_payload.overcurrent = true;
+    if ((dynamic_payload.temp1 > OVERTEMPERATURE) || (dynamic_payload.temp2 > OVERTEMPERATURE))
+        alert_payload.overtemperature = true;
+    //todo: check FOD
 
+    //* IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
+    if (alert_payload.internal)
+    {
+        safely_switch_off();
+        espnow_data_prepare(buf, ESP_NOW_DATA_ALERT);
+        if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
+            ESP_LOGE(TAG, "Send error");
+        }
+    }
+
+    FREE(buf);
 }
 
 static void esp_now_register_master(uint8_t *mac_addr, bool encrypt)
@@ -298,27 +322,50 @@ static void espnow_task(void *pvParameter)
                     /* If MAC address does not exist in peer list, add it to peer list. */
                     if (esp_now_is_peer_exist(recv_cb->mac_addr) == false) 
                     {
-                        memcpy(master_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
-                        ESP_LOGI(TAG, "Add master "MACSTR" to peer list", MAC2STR(master_mac));
-                        esp_now_register_master(master_mac, true);
-
-                        //parse data to set local alerts limits
-                        OVERCURRENT = recv_data->field_1;
-                        OVERVOLTAGE = recv_data->field_2;
-                        OVERTEMPERATURE = recv_data->field_3;
-                        FOD_ACTIVE = recv_data->field_4;
-
-                        //!start sending measurements data to the master - removed for testing
-                        if (xTimerStart(dynamic_timer, 0) != pdPASS) {
-                            ESP_LOGE(TAG, "Cannot start dynamic timer");
+                        if (recv_data->field_1 > 1) //meaning the payload contains the alerts thresholds
+                        {
+                            ESP_LOGW(TAG, "Setting alerts limits");
+                            //parse data to set local alerts limits
+                            OVERCURRENT = recv_data->field_1;
+                            OVERVOLTAGE = recv_data->field_2;
+                            OVERTEMPERATURE = recv_data->field_3;
+                            FOD_ACTIVE = recv_data->field_4;
                         }
-                        if (xTimerStart(alert_timer, 0) != pdPASS) {
-                            ESP_LOGE(TAG, "Cannot start alert timer");
+                        else
+                        {
+                            memcpy(master_mac, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                            ESP_LOGW(TAG, "Add master "MACSTR" to peer list", MAC2STR(master_mac));
+                            esp_now_register_master(master_mac, true);
+                            if (dynamic_timer == NULL)
+                            {
+                                // freeRTOS timers
+                                const int dyn_timegap = pdMS_TO_TICKS( (int) recv_data->field_3 );
+
+                                dynamic_timer = xTimerCreate("dynamic_timer", dyn_timegap, pdTRUE, NULL, dynamic_timer_callback);
+                                ESP_ERROR_CHECK( dynamic_timer == NULL ? ESP_FAIL : ESP_OK);
+                                alert_timer = xTimerCreate("alert_timer", ALERT_TIMEGAP, pdTRUE, NULL, alert_timer_callback);
+                                ESP_ERROR_CHECK( alert_timer == NULL ? ESP_FAIL : ESP_OK);
+                                //!start sending measurements data to the master
+                                if (xTimerStart(dynamic_timer, 0) != pdPASS) {
+                                    ESP_LOGE(TAG, "Cannot start dynamic timer");
+                                }
+                                if (xTimerStart(alert_timer, 0) != pdPASS) {
+                                    ESP_LOGE(TAG, "Cannot start alert timer");
+                                }
+                            }
                         }
                     }
                     else
                     {
+                        ESP_LOGI(TAG, "Master "MACSTR" already in peer list", MAC2STR(master_mac));
+                        //TODO: handle the dynamic change of dynamic timer from field_3
+
+                        //handle strip and switches
+
+                        //misalignment checking?
+
                         //Unpack data and switch on/off
+                        recv_data->field_1 ? gpio_set_level(FULL_POWER_OUT_PIN, 1) : gpio_set_level(FULL_POWER_OUT_PIN, 0);
                         recv_data->field_2 ? gpio_set_level(LOW_POWER_OUT_PIN, 1) : gpio_set_level(LOW_POWER_OUT_PIN, 0);
                         //take care of leds
                     }
@@ -376,6 +423,61 @@ static esp_err_t espnow_init(void)
     return ESP_OK;
 }
 
+static void hw_init()
+{
+    esp_err_t err_code;
+
+    install_strip(STRIP_PIN);
+    ESP_LOGI(TAG, "LED strip initialized successfully");
+
+    ESP_ERROR_CHECK(i2c_master_init());
+    ESP_LOGI(TAG, "I2C initialized successfully");
+
+    //* init GPIOs
+    gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    //disable pull-down mode
+    io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+
+    //todo: how do we get FOD?
+
+    safely_switch_off();
+
+    /* Initialize I2C semaphore */
+    i2c_sem = xSemaphoreCreateMutex();
+
+    //* HW reading timer*/
+    hw_readings_timer = xTimerCreate("hw_readings", HW_READINGS_TIMER_PERIOD, pdTRUE, NULL, hw_readings_timeout);
+    if (xTimerStart(hw_readings_timer, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Cannot start hw readings timer");
+    }
+
+    //* LED strip timers
+    connected_leds_timer = xTimerCreate("connected_leds", CONNECTED_LEDS_TIMER_PERIOD, pdTRUE, NULL, connected_leds);
+    misaligned_leds_timer = xTimerCreate("misaligned_leds", MISALIGNED_LEDS_TIMER_PERIOD, pdTRUE, NULL, misaligned_leds);
+    charging_leds_timer = xTimerCreate("charging leds", CHARGING_LEDS_TIMER_PERIOD, pdTRUE, NULL, charging_state);
+
+    if ( (connected_leds_timer == NULL) || (misaligned_leds_timer == NULL) || (charging_leds_timer == NULL))
+    {
+        ESP_LOGW(TAG, "Timers were not created successfully");
+        return;
+    }
+
+    xTimerStart(connected_leds_timer, 10);
+    xTimerStart(misaligned_leds_timer, 10);
+    xTimerStart(charging_leds_timer, 10);
+
+}
+
 void app_main(void)
 {
     // Initialize NVS
@@ -388,30 +490,12 @@ void app_main(void)
 
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
-    //todo: initialize hardware
-    //! todo: init GPIOs
-    gpio_config_t io_conf;
-    //disable interrupt
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    //set as output mode
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    //bit mask of the pins
-    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
-    //disable pull-down mode
-    io_conf.pull_down_en = 1;
-    //disable pull-up mode
-    io_conf.pull_up_en = 0;
-    //configure GPIO with the given settings
-    gpio_config(&io_conf);
-
     wifi_init();
     espnow_init();
 
-    // freeRTOS timers
-    dynamic_timer = xTimerCreate("dynamic_timer", DYNAMIC_TIMEGAP, pdTRUE, NULL, dynamic_timer_callback);
-    ESP_ERROR_CHECK( dynamic_timer == NULL ? ESP_FAIL : ESP_OK);
-    alert_timer = xTimerCreate("alert_timer", ALERT_TIMEGAP, pdTRUE, NULL, alert_timer_callback);
-    ESP_ERROR_CHECK( alert_timer == NULL ? ESP_FAIL : ESP_OK);
+    hw_init();
+
+
     //todo: another timer to make readings and save values to peer structure
 
     //ESP_NOW_DEINIT()

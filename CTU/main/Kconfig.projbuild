@@ -1,5 +1,11 @@
 menu "CTU Configuration"
 
+    config WIFI_EN
+        bool "Enable WiFi"
+        default "y"
+        help
+            Enable WiFi
+
     config WIFI_SSID
         string "WiFi SSID"
         default "manu"
@@ -11,6 +17,10 @@ menu "CTU Configuration"
         default "cherrycookies"
         help
             WiFi password used to connect to the AP.
+    
+    config BROKER_URL
+        string "Broker URL"
+        default "mqtts://bumblebee:Inductive1356@9f1c91ca48b94e70b21ae04163990bef.s1.eu.hivemq.cloud"
 
     config ESPNOW_PMK
         string "ESPNOW primary master key"

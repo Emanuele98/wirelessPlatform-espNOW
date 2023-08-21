@@ -5,6 +5,17 @@ bool blink1 = true;
 bool blink2 = true;
 int l1 = 0, l2 = 0;
 
+// default breathing color when pads connected
+int g = 0;
+bool up = true;
+
+/* virtual switch for default led mode */
+extern bool strip_enable;
+/* virtual switch for the led misalignment mode */
+extern bool strip_misalignment;
+/* virtual switch foe the charging mode */
+extern bool strip_charging;
+
 
 static const char *TAG = "LED STRIP";
 #define STRIP_CHECK(a, str, goto_tag, ret_value, ...)                             \
@@ -235,9 +246,43 @@ err:
     return ret;
 }
 
-void connected_leds(void *arg)
+void connected_leds(void)
 {
+    /* BREATHING GREEN */
 
+    if (strip_enable)
+    {
+        for (int j = 0; j <= N_LEDS; j++)
+        {
+            strip->set_pixel(strip, N_LEDS - j, 0, g, g);
+        }
+
+        strip->refresh(strip, 10);
+
+        switch (g)
+        {
+            case 100:
+                g--;
+                up = false;
+                break;
+
+            case 0:
+                g++;
+                up = true;
+                break;
+
+            default:
+                if(up)
+                    g++;
+                else
+                    g--;
+                break;
+        }
+
+    }
+
+    /* UKRAINE FLAG */
+    /*
     if(strip_enable)
     {   
         if (blink1)
@@ -258,9 +303,10 @@ void connected_leds(void *arg)
     } else 
         l1++;
     }  
+    */
 }
 
-void misaligned_leds(void *arg)
+void misaligned_leds(void)
 {
     if (strip_misalignment)
     {
@@ -276,7 +322,7 @@ void misaligned_leds(void *arg)
     }
 }
 
-void charging_state(void *arg)
+void charging_state(void)
 {
     if (strip_charging)
     {

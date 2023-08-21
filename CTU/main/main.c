@@ -1,6 +1,14 @@
 #include "espnow.h"
 #include "peer.h"
 
+//mqtt
+
+#include "lwip/sockets.h"
+#include "lwip/dns.h"
+#include "lwip/netdb.h"
+
+#include "mqtt_client.h"
+
 /* ALERTS LIMITS TX */
 #define OVERCURRENT_TX      3
 #define OVERVOLTAGE_TX      50
@@ -32,11 +40,135 @@ static bool scooter_tobechecked[NUMBER_RX] = {false};
 
 static uint8_t Baton = 0;
 
+/* LIST OF TOPICS FOR MQTT AND SD CARD*/
+ // TX
+const char tx_voltage[4][80] =          {"warwicktrial/ctu/pad1/sensors/voltage", "warwicktrial/ctu/pad2/sensors/voltage",
+                                         "warwicktrial/ctu/pad3/sensors/voltage", "warwicktrial/ctu/pad4/sensors/voltage"};
+const char tx_current[4][80] =          {"warwicktrial/ctu/pad1/sensors/current", "warwicktrial/ctu/pad2/sensors/current",
+                                         "warwicktrial/ctu/pad3/sensors/current", "warwicktrial/ctu/pad4/sensors/current"};
+const char tx_temp1[4][80] =            {"warwicktrial/ctu/pad1/sensors/temperature1", "warwicktrial/ctu/pad2/sensors/temperature1",
+                                         "warwicktrial/ctu/pad3/sensors/temperature1", "warwicktrial/ctu/pad4/sensors/temperature1"};
+const char tx_temp2[4][80] =            {"warwicktrial/ctu/pad1/sensors/temperature2", "warwicktrial/ctu/pad2/sensors/temperature2",
+                                         "warwicktrial/ctu/pad3/sensors/temperature2", "warwicktrial/ctu/pad4/sensors/temperature2"};
+const char tx_power[4][80] =            {"warwicktrial/ctu/pad1/sensors/power", "warwicktrial/ctu/pad2/sensors/power",
+                                         "warwicktrial/ctu/pad3/sensors/power", "warwicktrial/ctu/pad4/sensors/power"};
+const char tx_efficiency[4][80] =       {"warwicktrial/ctu/pad1/sensors/efficiency", "warwicktrial/ctu/pad2/sensors/efficiency",
+                                         "warwicktrial/ctu/pad3/sensors/efficiency", "warwicktrial/ctu/pad4/sensors/efficiency"};
+const char tx_fod[4][80] =              {"warwicktrial/ctu/pad1/alerts/fod", "warwicktrial/ctu/pad2/alerts/fod",
+                                         "warwicktrial/ctu/pad3/alerts/fod", "warwicktrial/ctu/pad4/alerts/fod"};
+const char tx_overvoltage[4][80] =      {"warwicktrial/ctu/pad1/alerts/overvoltage", "warwicktrial/ctu/pad2/alerts/overvoltage",
+                                         "warwicktrial/ctu/pad3/alerts/overvoltage", "warwicktrial/ctu/pad4/alerts/overvoltage"};
+const char tx_overcurrent[4][80] =      {"warwicktrial/ctu/pad1/alerts/overcurrent", "warwicktrial/ctu/pad2/alerts/overcurrent",
+                                         "warwicktrial/ctu/pad3/alerts/overcurrent", "warwicktrial/ctu/pad4/alerts/overcurrent"};
+const char tx_overtemperature[4][80] =  {"warwicktrial/ctu/pad1/alerts/overtemperature", "warwicktrial/ctu/pad2/alerts/overtemperature",
+                                         "warwicktrial/ctu/pad3/alerts/overtemperature", "warwicktrial/ctu/pad4/alerts/overtemperature"};
+const char tx_status[4][80] =           {"warwicktrial/ctu/pad1/status", "warwicktrial/ctu/pad2/status",
+                                         "warwicktrial/ctu/pad3/status", "warwicktrial/ctu/pad4/status"};
+const char tx_scooter[4][80] =          {"warwicktrial/ctu/pad1/scooter", "warwicktrial/ctu/pad2/scooter",
+                                         "warwicktrial/ctu/pad3/scooter", "warwicktrial/ctu/pad4/scooter"};
+ // RX
+const char rx_voltage[4][80] =          {"warwicktrial/cru/scooter3PAU/sensors/voltage", "warwicktrial/cru/scooter6F35/sensors/voltage",
+                                         "warwicktrial/cru/scooterEUUP/sensors/voltage", "warwicktrial/cru/scooterISIN/sensors/voltage"};
+const char rx_current[4][80] =          {"warwicktrial/cru/scooter3PAU/sensors/current", "warwicktrial/cru/scooter6F35/sensors/current",
+                                         "warwicktrial/cru/scooterEUUP/sensors/current", "warwicktrial/cru/scooterISIN/sensors/current"};
+const char rx_temp[4][80] =             {"warwicktrial/cru/scooter3PAU/sensors/temperature", "warwicktrial/cru/scooter6F35/sensors/temperature",
+                                         "warwicktrial/cru/scooterEUUP/sensors/temperature", "warwicktrial/cru/scooterISIN/sensors/temperature"};
+const char rx_power[4][80] =            {"warwicktrial/cru/scooter3PAU/sensors/power", "warwicktrial/cru/scooter6F35/sensors/power",
+                                         "warwicktrial/cru/scooterEUUP/sensors/power", "warwicktrial/cru/scooterISIN/sensors/power"};
+const char rx_charge_complete[4][80] =  {"warwicktrial/cru/scooter3PAU/alerts/chargecomplete", "warwicktrial/cru/scooter6F35/alerts/chargecomplete",
+                                         "warwicktrial/cru/scooterEUUP/alerts/chargecomplete", "warwicktrial/cru/scooterISIN/alerts/chargecomplete"};
+const char rx_overvoltage[4][80] =      {"warwicktrial/cru/scooter3PAU/alerts/overvoltage", "warwicktrial/cru/scooter6F35/alerts/overvoltage",
+                                         "warwicktrial/cru/scooterEUUP/alerts/overvoltage", "warwicktrial/cru/scooterISIN/alerts/overvoltage"};
+const char rx_overcurrent[4][80] =      {"warwicktrial/cru/scooter3PAU/alerts/overcurrent", "warwicktrial/cru/scooter6F35/alerts/overcurrent",
+                                         "warwicktrial/cru/scooterEUUP/alerts/overcurrent", "warwicktrial/cru/scooterISIN/alerts/overcurrent"};
+const char rx_overtemperature[4][80] =  {"warwicktrial/cru/scooter3PAU/alerts/overtemperature", "warwicktrial/cru/scooter6F35/alerts/overtemperature",
+                                         "warwicktrial/cru/scooterEUUP/alerts/overtemperature", "warwicktrial/cru/scooterISIN/alerts/overtemperature"};
+
+const char debug[80] = {"warwicktrial/debug"};
+
 
 /* FreeRTOS event group to signal when we are connected*/
 
 static EventGroupHandle_t s_wifi_event_group;
+static esp_mqtt_client_handle_t client;
 
+////////////      MQTT SETUP        ////////////////////////
+
+static void log_error_if_nonzero(const char *message, int error_code)
+{
+    if (error_code != 0) {
+        ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
+    }
+}
+
+/*
+ * @brief Event handler registered to receive MQTT events
+ *
+ *  This function is called by the MQTT client event loop.
+ *
+ * @param handler_args user data registered to the event.
+ * @param base Event base for the handler(always MQTT Base in this example).
+ * @param event_id The id for the received event.
+ * @param event_data The data for the event, esp_mqtt_event_handle_t.
+ */
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%d", base, (int) event_id);
+    esp_mqtt_event_handle_t event = event_data;
+    int msg_id;
+    switch ((esp_mqtt_event_id_t)event_id) {
+    case MQTT_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+        break;
+    case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        // force reconnection
+        esp_mqtt_client_reconnect(client);
+        break;
+
+    case MQTT_EVENT_SUBSCRIBED:
+        ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+
+        break;
+    case MQTT_EVENT_UNSUBSCRIBED:
+        ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+        break;
+    case MQTT_EVENT_PUBLISHED:
+        ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+        break;
+    case MQTT_EVENT_DATA:
+        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+        printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+        printf("DATA=%.*s\r\n", event->data_len, event->data);
+        break;
+    case MQTT_EVENT_ERROR:
+        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+            log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
+            log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
+            log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
+            ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
+
+        }
+        break;
+    default:
+        ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+        break;
+    }
+}
+
+static void mqtt_app_start(void)
+{
+    const esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = CONFIG_BROKER_URL,
+        //.cert_pem = (const char *)mqtt_eclipse_org_pem_start,
+    };
+
+    client = esp_mqtt_client_init(&mqtt_cfg);
+
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+    esp_mqtt_client_start(client);
+}
 
 /**
  * @brief Handler for WiFi and IP events
@@ -50,6 +182,8 @@ static void wifi_handler(void* arg, esp_event_base_t event_base,
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        // CONNECTION DONE - START MQTT
+        mqtt_app_start();
     } else
     {
         esp_wifi_connect();
@@ -59,6 +193,7 @@ static void wifi_handler(void* arg, esp_event_base_t event_base,
 
 
 /* WiFi should start before using ESPNOW */
+//? with wifi connection - esp now and wifi
 
 static void wifi_init(void)
 {
@@ -101,10 +236,10 @@ static void wifi_init(void)
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "connected to ap SSID: %s", CONFIG_WIFI_SSID);
         
-        // print the primary and secondary channels
+        //! print the primary and secondary channels (THE CHANNEL IS DECIDED BY THE ROUTER)
         uint8_t primary, secondary;
         esp_wifi_get_channel(&primary, &secondary);
-        ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);       
+        ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
         
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID: %s", CONFIG_WIFI_SSID);
@@ -123,8 +258,9 @@ static void wifi_init(void)
 
 
 /* WiFi should start before using ESPNOW */
-/*
-static void wifi_init(void)
+//? without wifi connection - only esp now
+
+static void wifi_init_connectionless(void)
 {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -139,7 +275,7 @@ static void wifi_init(void)
     ESP_ERROR_CHECK( esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
 #endif
 }
-*/
+
 
 static void esp_now_register_peer(uint8_t *mac_addr)
 {
@@ -159,7 +295,6 @@ static void esp_now_register_peer(uint8_t *mac_addr)
 
 static void esp_now_encrypt_peer(uint8_t *mac_addr)
 {
-    
     esp_now_peer_info_t *peer = malloc(sizeof(esp_now_peer_info_t));
     if (peer == NULL) {
         ESP_LOGE(TAG, "Malloc peer information fail");
@@ -314,6 +449,7 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             //!first message --> set alerts limits!
             if ((p->type == PAD) && (pads_status[p->id - 1] == PAD_DISCONNECTED))
             {
+                //ESP_LOGW(TAG, "SET ALERTS LIMITS");
                 buf->field_1 = OVERCURRENT_TX;
                 buf->field_2 = OVERVOLTAGE_TX;
                 buf->field_3 = OVERTEMPERATURE_TX;
@@ -321,7 +457,6 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             }
             else if ((p->type == SCOOTER) && (scooters_status[p->id - NUMBER_TX - 1] == SCOOTER_DISCONNECTED))
             {
-                ESP_LOGW(TAG, "SETTING REMOTE LIMITS");
                 buf->field_1 = OVERCURRENT_RX;
                 buf->field_2 = OVERVOLTAGE_RX;
                 buf->field_3 = OVERTEMPERATURE_RX;
@@ -329,10 +464,11 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             }
             else //!ANY OTHER MSG - SWITCH ON/OFF
             {
-                //for the alerts 
+                ESP_LOGW(TAG, "SWITCH ON/OFF");
                 buf->field_1 = p->full_power;
                 buf->field_2 = p->low_power;
-                buf->field_3 = buf->field_4 = 0;
+                buf->field_3 = PEER_DYNAMIC_TIMER; 
+                buf->field_4 = 0;
             }
             break;
 
@@ -458,7 +594,7 @@ static bool pass_the_baton(espnow_data_t *loc_data)
 
 static void localization_task(void *pvParameter)
 {
-    localization_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
+    localization_queue = xQueueCreate(LOC_QUEUE_SIZE, sizeof(espnow_event_t));
     if (localization_queue == NULL) {
         ESP_LOGE(TAG, "Create mutex fail");
         return;
@@ -619,27 +755,96 @@ static void espnow_task(void *pvParameter)
                         ESP_LOGW(TAG, "NEW PEER FOUND! ID: %d", unitID);
 
                         //Send unicast data to make him stop sending broadcast msg
+                        // fill in with remote alerts tresholds
                         espnow_data_prepare(espnow_data, ESPNOW_DATA_CONTROL, unitID);
                         if (esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
                             ESP_LOGE(TAG, "Send error");
                         }
-                        // then encrypt for future messages
-                        esp_now_encrypt_peer(recv_cb->mac_addr);
 
                         if (p->id > NUMBER_TX)   
                             scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_CONNECTED;
                         else
                             pads_status[unitID - 1] = PAD_CONNECTED;
+
+                        // send another control message to set the dynamic timer
+                        // pads will start sending dynamic data after this time
+                        // scooters will wait until their position is found
+                        espnow_data_prepare(espnow_data, ESPNOW_DATA_CONTROL, unitID);
+                        if (esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
+                            ESP_LOGE(TAG, "Send error");
+                        }
+
+                        // then encrypt for future messages
+                        esp_now_encrypt_peer(recv_cb->mac_addr);
+
+                        //todo: sends all 0 to the dashboard and reset peer structure
                     }
 
                 }
                 else if(addr_type == ESPNOW_DATA_DYNAMIC)
                 {
                     ESP_LOGI(TAG, "Receive DYNAMIC data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
-                                  
                     // save its details into peer structure
+                    struct peer *p = peer_find(unitID);
+                    if (p == NULL)
+                    {
+                        ESP_LOGE(TAG, "Peer not found");
+                        break;
+                    }
+
                     // check it was different from the previous one
-                    // if yes, send it to the queue for the dashboard publication
+                    //? compare recv_data with the one in the peer structure
+                    // if yes, send it to the queue for the dashboard publication 
+                    static char value[100];
+
+                    if (unitID < NUMBER_TX)
+                    {
+                        sprintf(value, "%.2f", recv_data->field_1);
+                        esp_mqtt_client_publish(client, tx_voltage[unitID-1], value, 0, 0, 0);
+                        sprintf(value, "%.2f", recv_data->field_2);
+                        esp_mqtt_client_publish(client, tx_current[unitID-1], value, 0, 0, 0);
+                        sprintf(value, "%.2f", recv_data->field_3);
+                        esp_mqtt_client_publish(client, tx_temp1[unitID-1], value, 0, 0, 0);
+                        sprintf(value, "%.2f", recv_data->field_4);
+                        esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, 0, 0);
+                        sprintf(value, "%.2f", p->dyn_payload.tx_power);
+                        esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, 0, 0);
+                    }
+                    else
+                    {
+                        sprintf(value, "%.2f", recv_data->field_1);
+                        esp_mqtt_client_publish(client, rx_voltage[unitID-NUMBER_TX-1], value, 0, 0, 0);
+                        sprintf(value, "%.2f", recv_data->field_2);
+                        esp_mqtt_client_publish(client, rx_current[unitID-NUMBER_TX-1], value, 0, 0, 0);
+                        sprintf(value, "%.2f", recv_data->field_3);
+                        esp_mqtt_client_publish(client, rx_temp[unitID-NUMBER_TX-1], value, 0, 0, 0);
+                        //sprintf(value, "%.2f", recv_data->field_4);
+                        //esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, 0, 0); //todo
+                        sprintf(value, "%.2f", p->dyn_payload.rx_power);
+                        esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, 0, 0);
+
+                    }
+    
+
+                    p->dyn_payload.voltage = recv_data->field_1;
+                    p->dyn_payload.current = recv_data->field_2;
+                    p->dyn_payload.temp1 = recv_data->field_3;
+                    p->dyn_payload.temp2 = recv_data->field_4;
+                    
+                    if (unitID < NUMBER_TX)
+                    {
+                        if ((p->dyn_payload.voltage > 10) && (p->dyn_payload.current > 1))
+                            p->dyn_payload.tx_power = p->dyn_payload.voltage * p->dyn_payload.current; 
+                        else
+                            p->dyn_payload.tx_power = 0;
+                    }
+                    else
+                    {
+                        if ((p->dyn_payload.voltage > 10) && (p->dyn_payload.current > 1))
+                            p->dyn_payload.rx_power = p->dyn_payload.voltage * p->dyn_payload.current;
+                        else
+                            p->dyn_payload.rx_power = 0;
+                    }
                 }
                 else if (addr_type == ESPNOW_DATA_ALERT)
                 {
@@ -689,13 +894,13 @@ static esp_err_t espnow_init(void)
         return ESP_FAIL;
     }
     
-    rc = xTaskCreate(espnow_task, "espnow_task", 2048, buffer, 4, NULL);
+    rc = xTaskCreate(espnow_task, "espnow_task", ESPNOW_TASK_SIZE, buffer, ESPNOW_TASK_PRIORITY, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Create espnow_task fail");
         return ESP_FAIL;
     }
 
-    rc = xTaskCreate(localization_task, "localization_task", 2048, loc_buffer, 8, NULL);
+    rc = xTaskCreate(localization_task, "localization_task", LOC_TASK_SIZE, loc_buffer, LOC_TASK_PRIORITY, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Create localization_task fail");
         return ESP_FAIL;
@@ -721,7 +926,11 @@ void app_main(void)
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
     ESP_LOGE(TAG, "length of espnow_data_t: %d", sizeof(espnow_data_t));
 
-    wifi_init();
+    if (CONFIG_WIFI_EN)
+        wifi_init();
+    else
+        wifi_init_connectionless();
+
     espnow_init();
     peer_init(NUMBER_RX + NUMBER_TX);
     //todo: temperature sensor init
