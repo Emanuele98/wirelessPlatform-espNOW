@@ -330,7 +330,7 @@ wpt_alert_payload_t alert_payload;
 TimerHandle_t dynamic_timer, alert_timer;
 SemaphoreHandle_t i2c_sem;
 
-scooter_position_t scooter_position = SCOOTER_POSITION_UNKNOWN;
+scooter_status_t scooter_status = SCOOTER_DISCONNECTED;
 
 //ALERTS LIMITS
 float OVERCURRENT = 0;
@@ -516,19 +516,19 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type)
             break;
     
         case ESPNOW_DATA_LOCALIZATION:
-            if (scooter_position == SCOOTER_POSITION_UNKNOWN)
+            if (scooter_status == SCOOTER_DISCONNECTED)
             {
-                buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = 0; //4th field 1
-                scooter_position = SCOOTER_POSITION_BEING_LOCALIZED;
+                buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = LOC_START_MESSAGE; 
+                scooter_status = SCOOTER_CONNECTED;
             }
-            else if (scooter_position == SCOOTER_POSITION_BEING_LOCALIZED)
+            else if (scooter_status == SCOOTER_CONNECTED)
             {
                 buf->field_1 = 1;
-                buf->field_2 = buf->field_3 = buf->field_4 = 0; //so here can be all 0s
-                if (dynamic_payload.voltage > MIN_VOLTAGE) //todo: is it higher than the min_voltage_threshold?
+                buf->field_2 = buf->field_3 = buf->field_4 = 0;
+                if (dynamic_payload.voltage > MIN_VOLTAGE) 
                 {
-                    scooter_position = SCOOTER_POSITION_FOUND;
-                    buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = 1;
+                    scooter_status = SCOOTER_CHARGING;
+                    buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = LOC_STOP_MESSAGE;
                     if (xTimerStart(dynamic_timer, 0) != pdPASS) {
                         ESP_LOGE(TAG, "Cannot start dynamic timer");
                     }
@@ -609,6 +609,8 @@ static void espnow_task(void *pvParameter)
                 } 
                 else
                 {
+                    if (send_cb->status != ESP_NOW_SEND_SUCCESS) 
+                        ESP_LOGE(TAG, "ERROR SENDING DATA TO MASTER");
                     //check it was sent correctly
                     //todo: if status != 0, then resend data
                     //todo: check retransmission count
@@ -690,7 +692,7 @@ static void espnow_task(void *pvParameter)
                     ESP_LOGI(TAG, "Receive LOCALIZATION message");
                     
                     //send the voltage back after reaction  time
-                    vTaskDelay(recv_data->field_1*1000/portTICK_PERIOD_MS);
+                    vTaskDelay(recv_data->field_1/portTICK_PERIOD_MS);
                     espnow_data_prepare(espnow_data, ESPNOW_DATA_LOCALIZATION);
                     if (esp_now_send(master_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
                         ESP_LOGE(TAG, "Send error");
@@ -790,6 +792,21 @@ void init_hw(void)
 
     /* Initialize I2C semaphore */
     i2c_sem = xSemaphoreCreateMutex();
+
+    uint8_t err;
+    // create tasks to get measurements as fast as possible
+    err = xTaskCreatePinnedToCore(get_temp, "get_temp", 2048, NULL, 5, NULL, 1);
+    if ( err != pdPASS )
+    {
+        ESP_LOGE(TAG, "Task get_temp was not created successfully");
+        return;
+    }
+    err = xTaskCreatePinnedToCore(get_adc, "get_adc", 5000, NULL, 5, NULL, 1);
+    if( err != pdPASS )
+    {
+        ESP_LOGE(TAG, "Task get_ was not created successfully");
+        return;
+    }
 }
 
 
@@ -806,7 +823,6 @@ void app_main(void)
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
     //todo: initialize hardware
-    //! todo: init GPIOs
     /* Initialize ACCELEROMETER */
     //accelerometer_init();
 
@@ -815,25 +831,8 @@ void app_main(void)
     /* Initialize V-A-T sensors */
     init_hw();
 
-    uint8_t err;
-    // create tasks to get measurements as fast as possible
-    err = xTaskCreatePinnedToCore(get_temp, "get_temp", 2048, NULL, 5, NULL, 1);
-    if ( err != pdPASS )
-    {
-        ESP_LOGE(TAG, "Task get_temp was not created successfully");
-        return;
-    }
-    err = xTaskCreatePinnedToCore(get_adc, "get_adc", 5000, NULL, 5, NULL, 1);
-    if( err != pdPASS )
-    {
-        ESP_LOGE(TAG, "Task get_ was not created successfully");
-        return;
-    }
-
-    //todo: start periodic alerts checking
-
-//    wifi_init();
-//    espnow_init();
+    wifi_init();
+    espnow_init();
 
     //ESP_NOW_DEINIT()
     //WIFI_DEINIT()

@@ -17,12 +17,14 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 
-#define UNIT_ROLE SCOOTER1
+#define UNIT_ROLE SCOOTER2
 
 #define ESPNOW_QUEUE_SIZE           10
 #define BROADCAST_TIMEGAP           pdMS_TO_TICKS(1000)
 #define ALERT_TIMEGAP               pdMS_TO_TICKS(100)
 
+#define LOC_START_MESSAGE       0x10
+#define LOC_STOP_MESSAGE        0x01
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 
@@ -73,12 +75,12 @@ typedef enum {
     SCOOTER4,
 } peer_id;
 
-typedef enum
-{
-    SCOOTER_POSITION_UNKNOWN,
-    SCOOTER_POSITION_BEING_LOCALIZED,
-    SCOOTER_POSITION_FOUND
-} scooter_position_t;
+typedef enum {
+    SCOOTER_DISCONNECTED,   //when the scooter is not connected
+    SCOOTER_CONNECTED,      //when the scooter is connected but not localized yet
+    SCOOTER_CHARGING,       //when the position is found
+    SCOOTER_FULLY_CHARGED   //when the scooter is still on the pad but fully charged
+} scooter_status_t;
 
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct
@@ -102,8 +104,7 @@ typedef union
 	uint8_t internal;
 } wpt_alert_payload_t;
 
-/* User defined field of ESPNOW data in this example. */
-//todo: define the meaning of each field based on the message type
+/* ESP NOW PAYLOAD */
 typedef struct { 
     uint8_t id;                           //Peer unit ID.
     uint8_t type;                         //Broadcast or unicast ESPNOW data.

@@ -13,7 +13,7 @@ static uint8_t broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 esp_now_peer_num_t peer_num = {0, 0};
 
 wpt_alert_payload_t alert_payload;
-
+pad_status_t pad_status = PAD_DISCONNECTED;
 TimerHandle_t dynamic_timer, alert_timer, connected_leds_timer, misaligned_leds_timer, charging_leds_timer, hw_readings_timer;
 
 /* virtual switch for default led mode */
@@ -96,13 +96,13 @@ void alert_timer_callback(void)
     if (alert_payload.internal)
     {
         safely_switch_off();
-        espnow_data_prepare(buf, ESP_NOW_DATA_ALERT);
+        espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
         if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
             ESP_LOGE(TAG, "Send error");
         }
     }
 
-    FREE(buf);
+    free(buf);
 }
 
 static void esp_now_register_master(uint8_t *mac_addr, bool encrypt)
@@ -289,6 +289,9 @@ static void espnow_task(void *pvParameter)
                 } 
                 else
                 {
+                    if (send_cb->status != ESP_NOW_SEND_SUCCESS) 
+                        ESP_LOGE(TAG, "ERROR SENDING DATA TO MASTER");
+
                     //check it was sent correctly
                     //todo: if status != 0, then resend data
                     //todo: check retransmission count
@@ -352,6 +355,10 @@ static void espnow_task(void *pvParameter)
                                 if (xTimerStart(alert_timer, 0) != pdPASS) {
                                     ESP_LOGE(TAG, "Cannot start alert timer");
                                 }
+                                pad_status = PAD_CONNECTED;
+                                strip_misalignment = false;
+                                strip_charging = false;
+                                strip_enable = true;
                             }
                         }
                     }
@@ -361,13 +368,28 @@ static void espnow_task(void *pvParameter)
                         //TODO: handle the dynamic change of dynamic timer from field_3
 
                         //handle strip and switches
+                        if (recv_data->field_1)
+                        {
+                            safely_enable_full_power();
+                            strip_misalignment = false;
+                            strip_enable = false;
+                            strip_charging = true;
+                        }
+                        else if (recv_data->field_2)
+                            {
+                                //safely_enable_low_power(); //todo: reactivate low power!
+                                safely_enable_full_power();
+                            }
+                            else
+                            {
+                                safely_switch_off();
+                                strip_misalignment = false;
+                                strip_enable = false;
+                                strip_charging = false;
+                            }
 
-                        //misalignment checking?
-
-                        //Unpack data and switch on/off
-                        recv_data->field_1 ? gpio_set_level(FULL_POWER_OUT_PIN, 1) : gpio_set_level(FULL_POWER_OUT_PIN, 0);
-                        recv_data->field_2 ? gpio_set_level(LOW_POWER_OUT_PIN, 1) : gpio_set_level(LOW_POWER_OUT_PIN, 0);
-                        //take care of leds
+                        //todo: misalignment
+                        //todo: fully charged
                     }
                 }
                 else 
@@ -495,9 +517,7 @@ void app_main(void)
 
     hw_init();
 
-
-    //todo: another timer to make readings and save values to peer structure
-
+    //todo: switch safely off when master disappear
     //ESP_NOW_DEINIT()
     //WIFI_DEINIT()
 }

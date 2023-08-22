@@ -11,17 +11,19 @@
 
 /* ALERTS LIMITS TX */
 #define OVERCURRENT_TX      3
-#define OVERVOLTAGE_TX      50
+#define OVERVOLTAGE_TX      100
 #define OVERTEMPERATURE_TX  60
-#define FOD_ACTIVE          1
+#define FOD_ACTIVE          0
 /* ALERTS LIMITS RX */
 #define OVERCURRENT_RX      3
-#define OVERVOLTAGE_RX      50
+#define OVERVOLTAGE_RX      100
 #define OVERTEMPERATURE_RX  60
-#define MIN_VOLTAGE         3.0
+#define MIN_VOLTAGE         10
 
 /* LOC TIMING */
-#define REACTION_TIME       2    //seconds
+#define REACTION_TIME       2000    //milliseconds
+
+#define MQTT_QoS            0
 
 static const char *TAG = "MAIN";
 //todo: create an esp_now.c file and leave this main clean
@@ -67,22 +69,22 @@ const char tx_status[4][80] =           {"warwicktrial/ctu/pad1/status", "warwic
 const char tx_scooter[4][80] =          {"warwicktrial/ctu/pad1/scooter", "warwicktrial/ctu/pad2/scooter",
                                          "warwicktrial/ctu/pad3/scooter", "warwicktrial/ctu/pad4/scooter"};
  // RX
-const char rx_voltage[4][80] =          {"warwicktrial/cru/scooter3PAU/sensors/voltage", "warwicktrial/cru/scooter6F35/sensors/voltage",
-                                         "warwicktrial/cru/scooterEUUP/sensors/voltage", "warwicktrial/cru/scooterISIN/sensors/voltage"};
-const char rx_current[4][80] =          {"warwicktrial/cru/scooter3PAU/sensors/current", "warwicktrial/cru/scooter6F35/sensors/current",
-                                         "warwicktrial/cru/scooterEUUP/sensors/current", "warwicktrial/cru/scooterISIN/sensors/current"};
-const char rx_temp[4][80] =             {"warwicktrial/cru/scooter3PAU/sensors/temperature", "warwicktrial/cru/scooter6F35/sensors/temperature",
-                                         "warwicktrial/cru/scooterEUUP/sensors/temperature", "warwicktrial/cru/scooterISIN/sensors/temperature"};
-const char rx_power[4][80] =            {"warwicktrial/cru/scooter3PAU/sensors/power", "warwicktrial/cru/scooter6F35/sensors/power",
-                                         "warwicktrial/cru/scooterEUUP/sensors/power", "warwicktrial/cru/scooterISIN/sensors/power"};
-const char rx_charge_complete[4][80] =  {"warwicktrial/cru/scooter3PAU/alerts/chargecomplete", "warwicktrial/cru/scooter6F35/alerts/chargecomplete",
-                                         "warwicktrial/cru/scooterEUUP/alerts/chargecomplete", "warwicktrial/cru/scooterISIN/alerts/chargecomplete"};
-const char rx_overvoltage[4][80] =      {"warwicktrial/cru/scooter3PAU/alerts/overvoltage", "warwicktrial/cru/scooter6F35/alerts/overvoltage",
-                                         "warwicktrial/cru/scooterEUUP/alerts/overvoltage", "warwicktrial/cru/scooterISIN/alerts/overvoltage"};
-const char rx_overcurrent[4][80] =      {"warwicktrial/cru/scooter3PAU/alerts/overcurrent", "warwicktrial/cru/scooter6F35/alerts/overcurrent",
-                                         "warwicktrial/cru/scooterEUUP/alerts/overcurrent", "warwicktrial/cru/scooterISIN/alerts/overcurrent"};
-const char rx_overtemperature[4][80] =  {"warwicktrial/cru/scooter3PAU/alerts/overtemperature", "warwicktrial/cru/scooter6F35/alerts/overtemperature",
-                                         "warwicktrial/cru/scooterEUUP/alerts/overtemperature", "warwicktrial/cru/scooterISIN/alerts/overtemperature"};
+const char rx_voltage[4][80] =          {"warwicktrial/cru/scooter3PAU/sensors/voltage", "warwicktrial/cru/scooterISIN/sensors/voltage",
+                                         "warwicktrial/cru/scooterEUUP/sensors/voltage", "warwicktrial/cru/scooter6666/sensors/voltage"};
+const char rx_current[4][80] =          {"warwicktrial/cru/scooter3PAU/sensors/current", "warwicktrial/cru/scooterISIN/sensors/current",
+                                         "warwicktrial/cru/scooterEUUP/sensors/current", "warwicktrial/cru/scooter6666/sensors/current"};
+const char rx_temp[4][80] =             {"warwicktrial/cru/scooter3PAU/sensors/temperature", "warwicktrial/cru/scooterISIN/sensors/temperature",
+                                         "warwicktrial/cru/scooterEUUP/sensors/temperature", "warwicktrial/cru/scooter6666/sensors/temperature"};
+const char rx_power[4][80] =            {"warwicktrial/cru/scooter3PAU/sensors/power", "warwicktrial/cru/scooterISIN/sensors/power",
+                                         "warwicktrial/cru/scooterEUUP/sensors/power", "warwicktrial/cru/scooter6666/sensors/power"};
+const char rx_charge_complete[4][80] =  {"warwicktrial/cru/scooter3PAU/alerts/chargecomplete", "warwicktrial/cru/scooterISIN/alerts/chargecomplete",
+                                         "warwicktrial/cru/scooterEUUP/alerts/chargecomplete", "warwicktrial/cru/scooter6666/alerts/chargecomplete"};
+const char rx_overvoltage[4][80] =      {"warwicktrial/cru/scooter3PAU/alerts/overvoltage", "warwicktrial/cru/scooterISIN/alerts/overvoltage",
+                                         "warwicktrial/cru/scooterEUUP/alerts/overvoltage", "warwicktrial/cru/scooter6666/alerts/overvoltage"};
+const char rx_overcurrent[4][80] =      {"warwicktrial/cru/scooter3PAU/alerts/overcurrent", "warwicktrial/cru/scooterISIN/alerts/overcurrent",
+                                         "warwicktrial/cru/scooterEUUP/alerts/overcurrent", "warwicktrial/cru/scooter6666/alerts/overcurrent"};
+const char rx_overtemperature[4][80] =  {"warwicktrial/cru/scooter3PAU/alerts/overtemperature", "warwicktrial/cru/scooterISIN/alerts/overtemperature",
+                                         "warwicktrial/cru/scooterEUUP/alerts/overtemperature", "warwicktrial/cru/scooter6666/alerts/overtemperature"};
 
 const char debug[80] = {"warwicktrial/debug"};
 
@@ -254,6 +256,27 @@ static void wifi_init(void)
 #if CONFIG_ESPNOW_ENABLE_LONG_RANGE
     ESP_ERROR_CHECK( esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
 #endif
+}
+
+static void mqtt_unit_reset(peer_id id)
+{
+    if (id < NUMBER_TX)
+    {
+        esp_mqtt_client_publish(client, tx_voltage[id-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, tx_current[id-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, tx_temp1[id-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, tx_temp2[id-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, tx_power[id-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, tx_efficiency[id-1], "0", 0, MQTT_QoS, 0);
+    }
+    else
+    {
+        esp_mqtt_client_publish(client, rx_voltage[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, rx_current[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, rx_temp[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+        esp_mqtt_client_publish(client, rx_power[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+    }
+
 }
 
 
@@ -433,6 +456,7 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
         case ESPNOW_DATA_LOCALIZATION:
             // ask for received voltage after a minimum time
             //todo: exponential time based on the number of times the scooter has been checked
+            //todo: exploit accelerometer from scooter - do not check if checked already twice and it did not move since
             buf->field_1 = REACTION_TIME;
             buf->field_2 = buf->field_3 = buf->field_4 = 0;
             break;
@@ -468,7 +492,7 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
                 buf->field_1 = p->full_power;
                 buf->field_2 = p->low_power;
                 buf->field_3 = PEER_DYNAMIC_TIMER; 
-                buf->field_4 = 0;
+                buf->field_4 = 0; //todo: here goes misalignment command
             }
             break;
 
@@ -483,14 +507,9 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
 
 static uint8_t parse_localization_message(espnow_data_t *data)
 {
-    static float start = 0;
-    static float stop = 1;
-
-    //ALL 0 --> START
-    if ((data->field_1 == start) && (data->field_2 == start) && (data->field_3 == start) && (data->field_4 == start))
+    if ((data->field_1 == LOC_START_MESSAGE) && (data->field_2 == LOC_START_MESSAGE) && (data->field_3 == LOC_START_MESSAGE) && (data->field_4 == LOC_START_MESSAGE))
         return LOCALIZATION_START;
-    //ALL 1 --> STOP
-    else if ((data->field_1 == stop) && (data->field_2 == stop) && (data->field_3 == stop) && (data->field_4 == stop))
+    else if ((data->field_1 == LOC_STOP_MESSAGE) && (data->field_2 == LOC_STOP_MESSAGE) && (data->field_3 == LOC_STOP_MESSAGE) && (data->field_4 == LOC_STOP_MESSAGE))
             return LOCALIZATION_STOP;
         else
             return LOCALIZATION_CHECK;
@@ -638,7 +657,6 @@ static void localization_task(void *pvParameter)
                 if (pass_the_baton(localization_data))
                     scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = true;
 
-                //!you can add a field about whether the scooter needs to be checked or not to avoid useless messages
                 // send command to get voltage after a minimum time
                 espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
                 if(esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
@@ -652,8 +670,8 @@ static void localization_task(void *pvParameter)
                 ESP_LOGW(TAG, "LOCALIZATION STOPPED");
                 scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = false;
                 //find which pad is on
-                uint8_t pad_positition = find_pad_position();
-                struct peer *p = peer_find(pad_positition + 1);
+                uint8_t pad_position = find_pad_position();
+                struct peer *p = peer_find(pad_position + 1);
                 if (p == NULL)
                 {
                     ESP_LOGE(TAG, "Peer not found!");
@@ -661,15 +679,23 @@ static void localization_task(void *pvParameter)
                 }
                 p->low_power = 0;
                 p->full_power = 1;
-                pads_status[pad_positition] = PAD_FULL_POWER;
+                pads_status[pad_position] = PAD_FULL_POWER;
                 scooters_status[recv_data->id - NUMBER_TX - 1] = SCOOTER_CHARGING;
-                ESP_LOGW(TAG, "SCOOTER %d CHARGING ON PAD %d", recv_data->id - NUMBER_TX, pad_positition + 1);
+                ESP_LOGW(TAG, "SCOOTER %d CHARGING ON PAD %d", recv_data->id - NUMBER_TX, pad_position + 1);
+                esp_mqtt_client_publish(client, tx_status[pad_position], "1", 0, MQTT_QoS, 0);
+
+                if (recv_data->id == SCOOTER1)
+                    esp_mqtt_client_publish(client, tx_scooter[pad_position], "3PAU", 0, MQTT_QoS, 0);
+                else if (recv_data->id == SCOOTER2)
+                    esp_mqtt_client_publish(client, tx_scooter[pad_position], "ISIN", 0, MQTT_QoS, 0);
+
                 espnow_data_prepare(localization_data, ESPNOW_DATA_CONTROL, p->id);
                 if(esp_now_send(p->mac, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
                 {
                     ESP_LOGE(TAG, "Send error");
                     break;
                 }
+                //todo: check the loc is successfull - scooter keep charging for a minimum time OR constant check wheter it left?
                 break;
 
             default:
@@ -710,12 +736,16 @@ static void espnow_task(void *pvParameter)
                 addr_type = IS_BROADCAST_ADDR(send_cb->mac_addr) ? true : false;
                 if (addr_type)
                 {
-                    //todo: if status != 0, then resend data
-                    //todo: check retransmission count
+                    // never broadcast --> check only for unicast
+                    //broadcast always successfull anyway (no ack)
                 }
                 else
                 {
-                    // never broadcast --> check only for unicast
+                    if (send_cb->status != ESP_NOW_SEND_SUCCESS) 
+                        ESP_LOGE(TAG, "ERROR SENDING DATA TO "MACSTR"", MAC2STR(send_cb->mac_addr));
+
+                    //todo: if status != 0, then resend data
+                    //todo: check retransmission count
                 }
 
                 break;
@@ -778,6 +808,9 @@ static void espnow_task(void *pvParameter)
                         esp_now_encrypt_peer(recv_cb->mac_addr);
 
                         //todo: sends all 0 to the dashboard and reset peer structure
+
+                        mqtt_unit_reset(unitID);
+
                     }
 
                 }
@@ -794,37 +827,37 @@ static void espnow_task(void *pvParameter)
 
                     // check it was different from the previous one
                     //? compare recv_data with the one in the peer structure
-                    // if yes, send it to the queue for the dashboard publication 
                     static char value[100];
 
                     if (unitID < NUMBER_TX)
                     {
                         sprintf(value, "%.2f", recv_data->field_1);
-                        esp_mqtt_client_publish(client, tx_voltage[unitID-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, tx_voltage[unitID-1], value, 0, MQTT_QoS, 0);
                         sprintf(value, "%.2f", recv_data->field_2);
-                        esp_mqtt_client_publish(client, tx_current[unitID-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, tx_current[unitID-1], value, 0, MQTT_QoS, 0);
                         sprintf(value, "%.2f", recv_data->field_3);
-                        esp_mqtt_client_publish(client, tx_temp1[unitID-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, tx_temp1[unitID-1], value, 0, MQTT_QoS, 0);
                         sprintf(value, "%.2f", recv_data->field_4);
-                        esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, MQTT_QoS, 0);
                         sprintf(value, "%.2f", p->dyn_payload.tx_power);
-                        esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, MQTT_QoS, 0);
                     }
                     else
                     {
                         sprintf(value, "%.2f", recv_data->field_1);
-                        esp_mqtt_client_publish(client, rx_voltage[unitID-NUMBER_TX-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, rx_voltage[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
                         sprintf(value, "%.2f", recv_data->field_2);
-                        esp_mqtt_client_publish(client, rx_current[unitID-NUMBER_TX-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, rx_current[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
                         sprintf(value, "%.2f", recv_data->field_3);
-                        esp_mqtt_client_publish(client, rx_temp[unitID-NUMBER_TX-1], value, 0, 0, 0);
+                        esp_mqtt_client_publish(client, rx_temp[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
                         //sprintf(value, "%.2f", recv_data->field_4);
-                        //esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, 0, 0); //todo
+                        //esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo
                         sprintf(value, "%.2f", p->dyn_payload.rx_power);
-                        esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, 0, 0);
-
+                        esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
                     }
-    
+
+                    //todo: efficiency
+                    //todo: check the scooter did not leave
 
                     p->dyn_payload.voltage = recv_data->field_1;
                     p->dyn_payload.current = recv_data->field_2;
@@ -849,7 +882,8 @@ static void espnow_task(void *pvParameter)
                 else if (addr_type == ESPNOW_DATA_ALERT)
                 {
                     ESP_LOGI(TAG, "Receive ALERT data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
-                    // send it to the queue for the dashboard publication
+                    //TODO: send alert to the dashboard
+                    // switch off the peer and reconnect after some time
                 }
                 else 
                     ESP_LOGI(TAG, "Receive unexpected message type %d data from: "MACSTR"", addr_type, MAC2STR(recv_cb->mac_addr));
@@ -933,8 +967,4 @@ void app_main(void)
 
     espnow_init();
     peer_init(NUMBER_RX + NUMBER_TX);
-    //todo: temperature sensor init
-    //todo: sd card init
-
-    //todo: create a task for sending measurements to the dashboard (only when they change more than a delta)
 }

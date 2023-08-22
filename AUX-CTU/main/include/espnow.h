@@ -79,7 +79,7 @@ typedef enum {
     PAD_LOW_POWER,          //when the pad is on low power mode
     PAD_FULL_POWER,         //when the pad is on full power mode
     PAD_FULLY_CHARGED       //when the pad is off but a fully charged scooter is still present on it
-} pad_status;
+} pad_status_t;
 
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct
@@ -103,8 +103,7 @@ typedef union
 	uint8_t internal;
 } wpt_alert_payload_t;
 
-/* User defined field of ESPNOW data in this example. */
-//todo: define the meaning of each field based on the message type
+/* ESP NOW PAYLOAD */
 typedef struct { 
     uint8_t id;                           //Peer unit ID.
     uint8_t type;                         //Broadcast or unicast ESPNOW data.

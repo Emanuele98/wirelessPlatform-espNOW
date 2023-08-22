@@ -48,9 +48,6 @@
 #define ACK_VAL 0x0                             /*!< I2C ack value */
 #define NACK_VAL 0x1                            /*!< I2C nack value */
 
-//todo: add local check of FPGA for Foreign Object Detection
-//todo: FOD --> switch off locally --> send through alert chr --> CTU will know the pad is off already
-
 void hw_readings_timeout(void);
 
 void safely_enable_full_power(void); 

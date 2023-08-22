@@ -168,8 +168,6 @@ void get_adc(void)
             ESP_LOGW(TAG, "Voltage: %.2f, Current: %.2f", dynamic_payload.voltage, dynamic_payload.current );
             vTaskDelay(pdMS_TO_TICKS(50));
         }
-        /* Feed watchdog */
-        //esp_task_wdt_reset();
     }
 
     //if for any reason the loop terminates

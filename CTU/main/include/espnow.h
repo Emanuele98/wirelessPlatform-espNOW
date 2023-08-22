@@ -33,6 +33,9 @@
 
 #define PEER_DYNAMIC_TIMER      1000
 
+#define LOC_START_MESSAGE       0x10
+#define LOC_STOP_MESSAGE        0x01
+
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 
@@ -84,8 +87,7 @@ typedef enum {
     LOCALIZATION_STOP
 } localization_message_type;
 
-/* User defined field of ESPNOW data in this example. */
-//todo: define the meaning of each field based on the message type
+/* ESP NOW PAYLOAD */
 typedef struct { 
     uint8_t id;                           //Peer unit ID.
     uint8_t type;                         //Broadcast or unicast ESPNOW data.

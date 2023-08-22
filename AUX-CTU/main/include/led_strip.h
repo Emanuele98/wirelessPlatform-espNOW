@@ -19,13 +19,13 @@
 #define STRIP_PIN               13
 
 /* Default Leds connected blinking duration */
-#define CONNECTED_LEDS_TIMER_PERIOD 100
+#define CONNECTED_LEDS_TIMER_PERIOD pdMS_TO_TICKS(40)
 
 /* Leds misaligned blinking duration */
-#define MISALIGNED_LEDS_TIMER_PERIOD 300
+#define MISALIGNED_LEDS_TIMER_PERIOD pdMS_TO_TICKS(300)
 
 /* Leds charging timer duration*/
-#define CHARGING_LEDS_TIMER_PERIOD 200
+#define CHARGING_LEDS_TIMER_PERIOD pdMS_TO_TICKS(200)
 
 
 /**
@@ -127,23 +127,6 @@ typedef struct {
  * @param pin assigned GPIO pin
  */
 void install_strip(uint8_t pin);
-
-/**
-* @brief Install a new ws2812 driver (based on RMT peripheral)
-*
-* @param config: LED strip configuration
-* @return
-*      LED strip instance or NULL
-*/
-led_strip_t *led_strip_new_rmt_ws2812(const led_strip_config_t *config);
-
-/**
- * @brief Simple helper function, converting HSV color space to RGB color space
- *
- * Wiki: https://en.wikipedia.org/wiki/HSL_and_HSV
- *
- */
-void led_strip_hsv2rgb(uint32_t h, uint32_t s, uint32_t v, uint32_t *r, uint32_t *g, uint32_t *b);
 
 
 /**
