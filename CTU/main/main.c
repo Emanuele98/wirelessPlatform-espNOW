@@ -20,6 +20,8 @@
 #define OVERTEMPERATURE_RX  60
 #define MIN_VOLTAGE         10
 
+#define MQTT_MIN_DELTA      0.2     //minimum delta to publish a new value
+
 /* LOC TIMING */
 #define REACTION_TIME       2000    //milliseconds
 
@@ -39,8 +41,11 @@ static pad_status pads_status[NUMBER_TX] = {PAD_DISCONNECTED};
 bool connected_pads = false;
 static scooter_status scooters_status[NUMBER_RX] = {SCOOTER_DISCONNECTED};
 static bool scooter_tobechecked[NUMBER_RX] = {false};
+static uint8_t n_peer_broadcasts[NUMBER_TX + NUMBER_RX] = {0};
 
 static uint8_t Baton = 0;
+static uint16_t comms_fail = 0;
+static bool MQTT_ACTIVE = false;
 
 /* LIST OF TOPICS FOR MQTT AND SD CARD*/
  // TX
@@ -94,6 +99,9 @@ const char debug[80] = {"warwicktrial/debug"};
 static EventGroupHandle_t s_wifi_event_group;
 static esp_mqtt_client_handle_t client;
 
+void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id);
+
+
 ////////////      MQTT SETUP        ////////////////////////
 
 static void log_error_if_nonzero(const char *message, int error_code)
@@ -121,9 +129,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+        MQTT_ACTIVE = true;
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        MQTT_ACTIVE = false;
         // force reconnection
         esp_mqtt_client_reconnect(client);
         break;
@@ -239,9 +249,9 @@ static void wifi_init(void)
         ESP_LOGI(TAG, "connected to ap SSID: %s", CONFIG_WIFI_SSID);
         
         //! print the primary and secondary channels (THE CHANNEL IS DECIDED BY THE ROUTER)
-        uint8_t primary, secondary;
-        esp_wifi_get_channel(&primary, &secondary);
-        ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
+        //uint8_t primary, secondary;
+        //esp_wifi_get_channel(&primary, &secondary);
+        //ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
         
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID: %s", CONFIG_WIFI_SSID);
@@ -260,21 +270,25 @@ static void wifi_init(void)
 
 static void mqtt_unit_reset(peer_id id)
 {
-    if (id < NUMBER_TX)
+    if (MQTT_ACTIVE)
     {
-        esp_mqtt_client_publish(client, tx_voltage[id-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, tx_current[id-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, tx_temp1[id-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, tx_temp2[id-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, tx_power[id-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, tx_efficiency[id-1], "0", 0, MQTT_QoS, 0);
-    }
-    else
-    {
-        esp_mqtt_client_publish(client, rx_voltage[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, rx_current[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, rx_temp[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
-        esp_mqtt_client_publish(client, rx_power[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+        if (id < NUMBER_TX)
+        {
+            esp_mqtt_client_publish(client, tx_voltage[id-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_current[id-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_temp1[id-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_temp2[id-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_power[id-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_efficiency[id-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_status[id-1], "0", 0, MQTT_QoS, 0);
+        }
+        else
+        {
+            esp_mqtt_client_publish(client, rx_voltage[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, rx_current[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, rx_temp[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, rx_power[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+        }
     }
 
 }
@@ -362,9 +376,6 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
     uint8_t * mac_addr = recv_info->src_addr;
     int rssi = recv_info->rx_ctrl->rssi;
 
-    // TO DO: put in the queue only if the scooter is close enough
-    //ESP_LOGE(TAG, "RSSI: %d", rssi);
-
     if (mac_addr == NULL || data == NULL || len <= 0) {
         ESP_LOGE(TAG, "Receive cb arg error");
         return;
@@ -387,8 +398,11 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
     if (recv_data->id > NUMBER_TX )
     {
         // if it is not close enough
-        if (rssi < RSSI_LIMIT)
+        if (rssi < RSSI_LIMIT) //TODO: if scooter is connected - remove it from the list
+        {
+            ESP_LOGW(TAG, "Scooter not close enough");
             return;
+        }
         
         // if it is a localization message
         if (recv_data->type == ESPNOW_DATA_LOCALIZATION)
@@ -406,6 +420,131 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
         ESP_LOGW(TAG, "Send receive queue fail");
         free(recv_cb->data);
     }
+}
+
+static void handle_peer_alert(espnow_data_t *data)
+{
+    //send ALERT to the dashboard
+    peer_id unitID = data->id;
+    espnow_data_t *alert_data = malloc(sizeof(espnow_data_t));
+    if (alert_data == NULL)
+    {
+        ESP_LOGE(TAG, "Malloc alert data fail");
+        return;
+    }
+
+    if (unitID > NUMBER_TX) //scooter
+    {
+        if (MQTT_ACTIVE)
+        {
+            if (data->field_1) // overvoltage
+                esp_mqtt_client_publish(client, rx_overvoltage[unitID - NUMBER_TX - 1], "1", 0, MQTT_QoS, 0);
+            else if (data->field_2) //overcurrent
+                    esp_mqtt_client_publish(client, rx_overcurrent[unitID - NUMBER_TX - 1], "1", 0, MQTT_QoS, 0);
+                else if (data->field_3) //overtemperature
+                        esp_mqtt_client_publish(client, rx_overtemperature[unitID - NUMBER_TX - 1], "1", 0, MQTT_QoS, 0);
+                    else if (data->field_4) //charge complete
+                            esp_mqtt_client_publish(client, rx_charge_complete[unitID - NUMBER_TX - 1], "1", 0, MQTT_QoS, 0);
+        }
+
+        struct peer *scooter = peer_find_by_id(unitID);
+        if (scooter == NULL)
+        {
+            ESP_LOGE(TAG, "Scooter %d not found", unitID);
+            return;
+        }
+
+        //if its position is found - switch its relative pad off   
+        if (scooters_status[unitID - NUMBER_TX - 1] == SCOOTER_CHARGING)
+        {
+            struct peer *pad = peer_find_by_id(scooter->position);
+            if (pad == NULL)
+            {
+                ESP_LOGE(TAG, "Pad %d not found", scooter->position);
+                return;
+            }
+
+            pad->full_power = false;
+            espnow_data_prepare(&alert_data, ESPNOW_DATA_CONTROL, pad->id);
+            if (esp_now_send(pad->mac, (uint8_t *) &alert_data, sizeof(espnow_data_t)) != ESP_OK)
+                ESP_LOGE(TAG, "Error sending control message to pad %d", pad->id);
+        }
+
+        if (data->field_4)
+        {
+            scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_FULLY_CHARGED;
+            //todo: send command to the scooter to wait for accelerometer movement - send the movement back - disconnect the scooter
+        }
+        else   
+        {
+            //stay connected - send RESET command after a reasonable time
+            //reset peer - remove from the list - status disconnected
+            scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_ALERT;
+            vTaskDelay(pdMS_TO_TICKS(SCOOTER_ALERT_TIMEOUT));
+            espnow_data_prepare(&alert_data, ESPNOW_DATA_ALERT, unitID);
+            if (esp_now_send(scooter->mac, (uint8_t *) &alert_data, sizeof(espnow_data_t)) != ESP_OK)
+                ESP_LOGE(TAG, "Error sending alert message to scooter %d", unitID);
+            
+            //HERE RECONNECT THE SCOOTER
+            // if it still connected
+            if (scooters_status[unitID - NUMBER_TX - 1] == SCOOTER_ALERT)
+            {
+                scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
+                //remove peer from the esp now registered list
+                esp_now_del_peer(scooter->mac);
+                //delete peer
+                peer_delete(scooter->id);
+            }
+        }
+    }
+    else //pad
+    {
+        if (MQTT_ACTIVE)
+        {
+            if(data->field_1) //overtemperature
+                esp_mqtt_client_publish(client, tx_overtemperature[unitID - 1], "1", 0, MQTT_QoS, 0);
+                else if(data->field_2) //overvoltage
+                        esp_mqtt_client_publish(client, tx_overvoltage[unitID - 1], "1", 0, MQTT_QoS, 0);
+                    else if(data->field_3) //overcurrent
+                            esp_mqtt_client_publish(client, tx_overcurrent[unitID - 1], "1", 0, MQTT_QoS, 0);
+                        else if(data->field_4) //fod
+                                esp_mqtt_client_publish(client, tx_fod[unitID - 1], "1", 0, MQTT_QoS, 0);
+
+            //switch off the pad (if it comes from a pad it should be already off but better to be sure)    
+            struct peer *pad = peer_find_by_id(unitID);
+            if (pad == NULL)
+            {
+                ESP_LOGE(TAG, "Pad %d not found", unitID);
+                return;
+            }
+            pad->low_power = false;
+            pad->full_power = false;
+            espnow_data_prepare(&alert_data, ESPNOW_DATA_CONTROL, pad->id);
+            if (esp_now_send(pad->mac, (uint8_t *) &alert_data, sizeof(espnow_data_t)) != ESP_OK)
+                ESP_LOGE(TAG, "Error sending control message to pad %d", pad->id);
+
+            //stay connected - send RESET command after a reasonable time
+            //reset peer - remove from the list - status disconnected
+            pads_status[unitID - 1] = PAD_ALERT;
+            vTaskDelay(pdMS_TO_TICKS(PAD_ALERT_TIMEOUT));
+            espnow_data_prepare(&alert_data, ESPNOW_DATA_ALERT, unitID);
+            if (esp_now_send(pad->mac, (uint8_t *) &alert_data, sizeof(espnow_data_t)) != ESP_OK)
+                ESP_LOGE(TAG, "Error sending alert message to pad %d", unitID);
+            
+            //HERE RECONNECT THE PAD
+            // if it still connected
+            if (pads_status[unitID - 1] == PAD_ALERT)
+            {
+                pads_status[unitID - 1] = PAD_DISCONNECTED;
+                //remove peer from the esp now registered list
+                esp_now_del_peer(pad->mac);
+                //delete peer
+                peer_delete(pad->id);
+            }
+        }
+    }
+
+    free(alert_data);
 }
 
 /* Parse received ESPNOW data. */
@@ -439,8 +578,8 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
     buf->id = UNIT_ROLE;
     buf->type = type;
 
-    //! find which peers to control/localize
-    struct peer *p = peer_find(id);
+    // find which peers to control/localize
+    struct peer *p = peer_find_by_id(id);
     if (p == NULL)
     {
         ESP_LOGE(TAG, "Peer not found");
@@ -462,7 +601,8 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             break;
 
         case ESPNOW_DATA_ALERT:
-            // only received - never sent
+            // sent to tell the peer to RESET
+            buf->field_1 = buf->field_2 = buf->field_3 = ALERT_MESSAGE;
             break;
         
         case ESPNOW_DATA_DYNAMIC:
@@ -470,10 +610,10 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             break;
         
         case ESPNOW_DATA_CONTROL:
-            //!first message --> set alerts limits!
+            //first message --> set alerts limits!
             if ((p->type == PAD) && (pads_status[p->id - 1] == PAD_DISCONNECTED))
             {
-                //ESP_LOGW(TAG, "SET ALERTS LIMITS");
+                //ESP_LOGW(TAG, "SET PAD ALERTS LIMITS");
                 buf->field_1 = OVERCURRENT_TX;
                 buf->field_2 = OVERVOLTAGE_TX;
                 buf->field_3 = OVERTEMPERATURE_TX;
@@ -481,14 +621,15 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
             }
             else if ((p->type == SCOOTER) && (scooters_status[p->id - NUMBER_TX - 1] == SCOOTER_DISCONNECTED))
             {
+                //ESP_LOGW(TAG, "SET SCOOTER ALERTS LIMITS");
                 buf->field_1 = OVERCURRENT_RX;
                 buf->field_2 = OVERVOLTAGE_RX;
                 buf->field_3 = OVERTEMPERATURE_RX;
                 buf->field_4 = MIN_VOLTAGE;
             }
-            else //!ANY OTHER MSG - SWITCH ON/OFF
+            else 
             {
-                ESP_LOGW(TAG, "SWITCH ON/OFF");
+                //ESP_LOGW(TAG, "SWITCH ON/OFF");
                 buf->field_1 = p->full_power;
                 buf->field_2 = p->low_power;
                 buf->field_3 = PEER_DYNAMIC_TIMER; 
@@ -562,7 +703,7 @@ static bool pass_the_baton(espnow_data_t *loc_data)
             if (pads_status[Baton] == PAD_LOW_POWER)
             {
                 //switch off the previous pad
-                struct peer *p = peer_find(Baton + 1);
+                struct peer *p = peer_find_by_id(Baton + 1);
                 if (p == NULL)
                 {
                     ESP_LOGE(TAG, "Peer not found");
@@ -582,7 +723,7 @@ static bool pass_the_baton(espnow_data_t *loc_data)
             else if ((pads_status[Baton] == PAD_CONNECTED) && (loc_pads_off()))
             {                
                 //switch on the new pad
-                struct peer *p = peer_find(Baton + 1);
+                struct peer *p = peer_find_by_id(Baton + 1);
                 if (p == NULL)
                 {
                     ESP_LOGE(TAG, "Peer not found");
@@ -671,31 +812,40 @@ static void localization_task(void *pvParameter)
                 scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = false;
                 //find which pad is on
                 uint8_t pad_position = find_pad_position();
-                struct peer *p = peer_find(pad_position + 1);
-                if (p == NULL)
+                struct peer *pad = peer_find_by_id(pad_position + 1);
+                if (pad == NULL)
                 {
                     ESP_LOGE(TAG, "Peer not found!");
                     break;
                 }
-                p->low_power = 0;
-                p->full_power = 1;
+                pad->low_power = 0;
+                pad->full_power = 1;
                 pads_status[pad_position] = PAD_FULL_POWER;
                 scooters_status[recv_data->id - NUMBER_TX - 1] = SCOOTER_CHARGING;
                 ESP_LOGW(TAG, "SCOOTER %d CHARGING ON PAD %d", recv_data->id - NUMBER_TX, pad_position + 1);
-                esp_mqtt_client_publish(client, tx_status[pad_position], "1", 0, MQTT_QoS, 0);
-
-                if (recv_data->id == SCOOTER1)
-                    esp_mqtt_client_publish(client, tx_scooter[pad_position], "3PAU", 0, MQTT_QoS, 0);
-                else if (recv_data->id == SCOOTER2)
-                    esp_mqtt_client_publish(client, tx_scooter[pad_position], "ISIN", 0, MQTT_QoS, 0);
-
-                espnow_data_prepare(localization_data, ESPNOW_DATA_CONTROL, p->id);
-                if(esp_now_send(p->mac, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+                //update scooter position
+                struct peer *scooter = peer_find_by_id(recv_data->id);
+                if (scooter == NULL)
+                {
+                    ESP_LOGE(TAG, "Peer not found!");
+                    break;
+                }
+                scooter->position = pad_position + 1;
+                if (MQTT_ACTIVE)
+                {
+                    esp_mqtt_client_publish(client, tx_status[pad_position], "1", 0, MQTT_QoS, 0);
+                    if (recv_data->id == SCOOTER1)
+                        esp_mqtt_client_publish(client, tx_scooter[pad_position], "3PAU", 0, MQTT_QoS, 0);
+                    else if (recv_data->id == SCOOTER2)
+                        esp_mqtt_client_publish(client, tx_scooter[pad_position], "ISIN", 0, MQTT_QoS, 0);
+                }
+                espnow_data_prepare(localization_data, ESPNOW_DATA_CONTROL, pad->id);
+                if(esp_now_send(pad->mac, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
                 {
                     ESP_LOGE(TAG, "Send error");
                     break;
                 }
-                //todo: check the loc is successfull - scooter keep charging for a minimum time OR constant check wheter it left?
+                //todo: check the loc is successfull - scooter keep charging for a minimum time OR constant check whether it left?
                 break;
 
             default:
@@ -736,16 +886,64 @@ static void espnow_task(void *pvParameter)
                 addr_type = IS_BROADCAST_ADDR(send_cb->mac_addr) ? true : false;
                 if (addr_type)
                 {
-                    // never broadcast --> check only for unicast
                     //broadcast always successfull anyway (no ack)
                 }
                 else
                 {
+                    //unicast message
                     if (send_cb->status != ESP_NOW_SEND_SUCCESS) 
+                    {
                         ESP_LOGE(TAG, "ERROR SENDING DATA TO "MACSTR"", MAC2STR(send_cb->mac_addr));
+                        struct peer *p = peer_find_by_mac(send_cb->mac_addr);
+                        if (p == NULL)
+                        {
+                            ESP_LOGE(TAG, "Peer not found");
+                            break;
+                        }
+                        comms_fail++;
 
-                    //todo: if status != 0, then resend data
-                    //todo: check retransmission count
+                        //! WHAT TO DO? ALLOW IT FOR NOW TO SEE HOW BAD IT IS
+                        //SEND IT TO DEBUG MQTT TOPIC TO KEEP TRACK OF IT
+                        if (MQTT_ACTIVE)
+                        {
+                            char value[50];
+                            sprintf(value, "Send failed - n. %d", comms_fail);
+                            esp_mqtt_client_publish(client, debug, value, 0, MQTT_QoS, 0);
+                        }
+
+                        //TODO: RETRANSMISSION NEEDED?
+                        // IF YES - NEED A SEMAPHORE TO AVOID SENDING OF OTHER MESSAGES IN THE MEANWHILE
+
+                        //FOR NOW ASSUMPTION - NEVER HAPPENS. IF IT DOES, SEND ALERT TO REBOOT THE PEER
+                        /*
+                        espnow_data_prepare(espnow_data, ESPNOW_DATA_ALERT, p->id);
+                        if (esp_now_send(p->mac, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
+                            ESP_LOGE(TAG, "Send error");
+                        }
+                        */
+
+                        //for now
+                        if (comms_fail > MAX_COMMS_ERROR)
+                        {
+                            ESP_LOGE(TAG, "TOO MANY COMMS ERRORS, RESTARTING");
+
+                            //delete all peers
+                            delete_all_peers();
+
+                            //reboot
+                            esp_restart();
+                        }
+                        else
+                        {
+                            //?retransmission
+                            // is it needed?
+                        }
+                    }
+                    else 
+                    {
+                        //reset comms - we are good
+                        comms_fail = 0;
+                    }
                 }
 
                 break;
@@ -781,7 +979,7 @@ static void espnow_task(void *pvParameter)
 
                         // save its details into peer structure 
                         peer_add(unitID, recv_cb->mac_addr);
-                        struct peer *p = peer_find(unitID);
+                        struct peer *p = peer_find_by_id(unitID);
                         ESP_LOGW(TAG, "NEW PEER FOUND! ID: %d", unitID);
 
                         //Send unicast data to make him stop sending broadcast msg
@@ -807,9 +1005,29 @@ static void espnow_task(void *pvParameter)
                         // then encrypt for future messages
                         esp_now_encrypt_peer(recv_cb->mac_addr);
 
-                        //todo: sends all 0 to the dashboard and reset peer structure
-
+                        //reset dashboard
                         mqtt_unit_reset(unitID);
+                    }
+                    else   //you receive broadcasts data from a registered peer = PEER RESET --> delete peer so you can restart the connection
+                    {
+                        //need to check multiple broadcasts as they might be sent slighly before register the master
+                        if (n_peer_broadcasts[unitID-1] > MAX_BROADCASTS_BEFORE_RECONNECTION)
+                        { 
+                            //reset its status
+                            if (unitID > NUMBER_TX)
+                                scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
+                            else
+                                pads_status[unitID - 1] = PAD_DISCONNECTED;
+
+                            //remove peer from the esp now registered list
+                            esp_now_del_peer(recv_cb->mac_addr);
+
+                            //delete peer
+                            peer_delete(unitID);
+                            n_peer_broadcasts[unitID-1] = 0;
+                        }
+                        else
+                            n_peer_broadcasts[unitID-1]++;
 
                     }
 
@@ -817,8 +1035,11 @@ static void espnow_task(void *pvParameter)
                 else if(addr_type == ESPNOW_DATA_DYNAMIC)
                 {
                     ESP_LOGI(TAG, "Receive DYNAMIC data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
+
+                    //todo: create function to parse dynamic data
+
                     // save its details into peer structure
-                    struct peer *p = peer_find(unitID);
+                    struct peer *p = peer_find_by_id(unitID);
                     if (p == NULL)
                     {
                         ESP_LOGE(TAG, "Peer not found");
@@ -827,36 +1048,71 @@ static void espnow_task(void *pvParameter)
 
                     // check it was different from the previous one
                     //? compare recv_data with the one in the peer structure
-                    static char value[100];
-
-                    if (unitID < NUMBER_TX)
+                    if (MQTT_ACTIVE)
                     {
-                        sprintf(value, "%.2f", recv_data->field_1);
-                        esp_mqtt_client_publish(client, tx_voltage[unitID-1], value, 0, MQTT_QoS, 0);
-                        sprintf(value, "%.2f", recv_data->field_2);
-                        esp_mqtt_client_publish(client, tx_current[unitID-1], value, 0, MQTT_QoS, 0);
-                        sprintf(value, "%.2f", recv_data->field_3);
-                        esp_mqtt_client_publish(client, tx_temp1[unitID-1], value, 0, MQTT_QoS, 0);
-                        sprintf(value, "%.2f", recv_data->field_4);
-                        esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, MQTT_QoS, 0);
-                        sprintf(value, "%.2f", p->dyn_payload.tx_power);
-                        esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, MQTT_QoS, 0);
-                    }
-                    else
-                    {
-                        sprintf(value, "%.2f", recv_data->field_1);
-                        esp_mqtt_client_publish(client, rx_voltage[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
-                        sprintf(value, "%.2f", recv_data->field_2);
-                        esp_mqtt_client_publish(client, rx_current[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
-                        sprintf(value, "%.2f", recv_data->field_3);
-                        esp_mqtt_client_publish(client, rx_temp[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
-                        //sprintf(value, "%.2f", recv_data->field_4);
-                        //esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo
-                        sprintf(value, "%.2f", p->dyn_payload.rx_power);
-                        esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
-                    }
+                        static char value[50];
+                        if (unitID < NUMBER_TX)
+                        {
+                            if (abs(recv_data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_1);
+                                esp_mqtt_client_publish(client, tx_voltage[unitID-1], value, 0, MQTT_QoS, 0);
+                            }
+                            if (abs(recv_data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_2);
+                                esp_mqtt_client_publish(client, tx_current[unitID-1], value, 0, MQTT_QoS, 0);
+                            }
+                            if (abs(recv_data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_3);
+                                esp_mqtt_client_publish(client, tx_temp1[unitID-1], value, 0, MQTT_QoS, 0);
+                            }
+                            if (abs(recv_data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_4);
+                                esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, MQTT_QoS, 0);
+                            }
+                            if (abs(p->dyn_payload.tx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", p->dyn_payload.tx_power);
+                                esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, MQTT_QoS, 0);
+                            }
 
-                    //todo: efficiency
+                            //todo: efficiency - must use time to correlate correctly the values
+                        }
+                        else
+                        {
+                            if (abs(recv_data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_1);
+                                esp_mqtt_client_publish(client, rx_voltage[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
+                            }
+                            if (abs(recv_data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_2);
+                                esp_mqtt_client_publish(client, rx_current[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
+                            }
+                            if (abs(recv_data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_3);
+                                esp_mqtt_client_publish(client, rx_temp[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
+                            }
+                            /*
+                            if (abs(recv_data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", recv_data->field_4);
+                                esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo: do we want to send it?
+                            }
+                            */
+                            if (abs(p->dyn_payload.rx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA)
+                            {
+                                sprintf(value, "%.2f", p->dyn_payload.rx_power);
+                                esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
+                            }
+                        }
+
+                    }
                     //todo: check the scooter did not leave
 
                     p->dyn_payload.voltage = recv_data->field_1;
@@ -870,6 +1126,8 @@ static void espnow_task(void *pvParameter)
                             p->dyn_payload.tx_power = p->dyn_payload.voltage * p->dyn_payload.current; 
                         else
                             p->dyn_payload.tx_power = 0;
+                        
+                        //todo: efficiency
                     }
                     else
                     {
@@ -878,12 +1136,13 @@ static void espnow_task(void *pvParameter)
                         else
                             p->dyn_payload.rx_power = 0;
                     }
+                    //todo: save time of this values
                 }
                 else if (addr_type == ESPNOW_DATA_ALERT)
                 {
                     ESP_LOGI(TAG, "Receive ALERT data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
-                    //TODO: send alert to the dashboard
-                    // switch off the peer and reconnect after some time
+
+                    handle_peer_alert(recv_data);
                 }
                 else 
                     ESP_LOGI(TAG, "Receive unexpected message type %d data from: "MACSTR"", addr_type, MAC2STR(recv_cb->mac_addr));
@@ -940,10 +1199,6 @@ static esp_err_t espnow_init(void)
         return ESP_FAIL;
     }
 
-    // free the buffers at exit //!needs to call a function
-    //atexit(free(buffer));
-    //atexit(free(loc_buffer));
-
     return ESP_OK;
 }
 
@@ -967,4 +1222,11 @@ void app_main(void)
 
     espnow_init();
     peer_init(NUMBER_RX + NUMBER_TX);
+
+    atexit(delete_all_peers);
+    atexit(esp_now_deinit);
+    atexit(esp_wifi_deinit);
+
+    //todo: tasks size -- watermark
+    //todo: menuconfig to optimize everything
 }

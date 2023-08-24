@@ -5,7 +5,7 @@ static const char *TAG = "PEER";
 
 static SLIST_HEAD(, peer) peers;
 
-struct peer * peer_find(peer_id id)
+struct peer * peer_find_by_id(peer_id id)
 {
     struct peer *p;
 
@@ -18,30 +18,17 @@ struct peer * peer_find(peer_id id)
     return NULL;
 }
 
-uint8_t peer_delete(peer_id id)
+struct peer * peer_find_by_mac(uint8_t *mac)
 {
     struct peer *p;
 
     SLIST_FOREACH(p, &peers, next) {
-        if (p->id == id) {
-            SLIST_REMOVE(&peers, p, peer, next);
-            free(p);
-            return 0;
+        if (memcmp(p->mac, mac, ESP_NOW_ETH_ALEN) == 0) {
+            return p;
         }
     }
 
-    return 1;
-}
-
-void delete_all_peers(void)
-{
-    struct peer *p;
-
-    while (!SLIST_EMPTY(&peers)) {
-        p = SLIST_FIRST(&peers);
-        SLIST_REMOVE_HEAD(&peers, next);
-        free(p);
-    }
+    return NULL;
 }
 
 uint8_t peer_add(peer_id id, uint8_t *mac)
@@ -49,7 +36,7 @@ uint8_t peer_add(peer_id id, uint8_t *mac)
     struct peer *p;
 
     /*Make sure the peer does not exist in the memory pool yet*/
-    p = peer_find(id);
+    p = peer_find_by_id(id);
     if (p) 
     {
         ESP_LOGE(TAG, "Peer already exists in the memory pool");
@@ -95,4 +82,31 @@ void peer_init(uint8_t max_peers)
     atexit(delete_all_peers);
 }
 
+void peer_delete(peer_id id)
+{
+    struct peer *p = peer_find_by_id(id);
+    if(p == NULL)
+    {
+        ESP_LOGE(TAG, "Peer cannot be deleted - not found");
+        return;
+    }
+
+    // remove it from the list of espnow connections
+    esp_now_del_peer(p->mac);
+
+    //remove it from the list of saved peers
+    SLIST_REMOVE(&peers, p, peer, next);
+    free(p);
+}
+
+void delete_all_peers(void)
+{
+    struct peer *p;
+
+    while (!SLIST_EMPTY(&peers)) {
+        p = SLIST_FIRST(&peers);
+        SLIST_REMOVE_HEAD(&peers, next);
+        free(p);
+    }
+}
 

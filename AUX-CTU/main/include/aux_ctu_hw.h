@@ -13,7 +13,9 @@
 #include "espnow.h"
 
 #define OR_TIME_GAP                 pdMS_TO_TICKS(30)
-#define HW_READINGS_TIMER_PERIOD    pdMS_TO_TICKS(20)
+#define HW_READINGS_TIMER_PERIOD    pdMS_TO_TICKS(25)
+
+#define AVG_ALERT_WINDOW                10
 
 /* Arbitrary pin values */
 #define FULL_POWER_OUT_PIN           GPIO_NUM_26           /* GPIO26 */

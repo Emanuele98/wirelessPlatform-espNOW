@@ -17,14 +17,18 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 
-#define UNIT_ROLE SCOOTER2
+#define UNIT_ROLE SCOOTER1
 
-#define ESPNOW_QUEUE_SIZE           10
-#define BROADCAST_TIMEGAP           pdMS_TO_TICKS(1000)
-#define ALERT_TIMEGAP               pdMS_TO_TICKS(100)
+#define MAX_COMMS_ERROR         5
+
+#define ESPNOW_QUEUE_SIZE       10
+#define BROADCAST_TIMEGAP       pdMS_TO_TICKS(1000)
+#define ALERT_TIMEGAP           pdMS_TO_TICKS(100)
 
 #define LOC_START_MESSAGE       0x10
 #define LOC_STOP_MESSAGE        0x01
+
+#define ALERT_MESSAGE           0x99
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 
@@ -79,7 +83,8 @@ typedef enum {
     SCOOTER_DISCONNECTED,   //when the scooter is not connected
     SCOOTER_CONNECTED,      //when the scooter is connected but not localized yet
     SCOOTER_CHARGING,       //when the position is found
-    SCOOTER_FULLY_CHARGED   //when the scooter is still on the pad but fully charged
+    SCOOTER_FULLY_CHARGED,  //when the scooter is still on the pad but fully charged
+    SCOOTER_ALERT           //when the scooter sent an alert (overcurrent, overvoltage, overtemperature)
 } scooter_status_t;
 
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
@@ -99,7 +104,7 @@ typedef union
 		uint8_t           overtemperature:1;    
 		uint8_t           overcurrent:1;        
 		uint8_t           overvoltage:1;        
-   		uint8_t           FOD:1;                
+   		uint8_t           fully_charged:1;                
 	};
 	uint8_t internal;
 } wpt_alert_payload_t;

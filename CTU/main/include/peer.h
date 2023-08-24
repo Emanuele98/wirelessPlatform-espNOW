@@ -38,14 +38,16 @@ typedef enum {
     PAD_CONNECTED,          //when the pad is connected 
     PAD_LOW_POWER,          //when the pad is on low power mode
     PAD_FULL_POWER,         //when the pad is on full power mode
-    PAD_FULLY_CHARGED       //when the pad is off but a fully charged scooter is still present on it
+    PAD_FULLY_CHARGED,      //when the pad is off but a fully charged scooter is still present on it
+    PAD_ALERT               //when the pad sent an alert (overcurrent, overvoltage, overtemperature, FOD)
 } pad_status;
 
 typedef enum {
     SCOOTER_DISCONNECTED,   //when the scooter is not connected
     SCOOTER_CONNECTED,      //when the scooter is connected but not localized yet
     SCOOTER_CHARGING,       //when the position is found
-    SCOOTER_FULLY_CHARGED   //when the scooter is still on the pad but fully charged
+    SCOOTER_FULLY_CHARGED,  //when the scooter is still on the pad but fully charged
+    SCOOTER_ALERT           //when the scooter sent an alert (overcurrent, overvoltage, overtemperature)
 } scooter_status;
 
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
@@ -81,8 +83,6 @@ struct peer
     peer_type type;
     uint8_t mac[6];
 
-
-
     /* STATUS ON/OFF */
     bool full_power;
 
@@ -105,12 +105,17 @@ struct peer
 
 
 //* Functions to handle peer structures saved into a memory pool */
-uint8_t peer_delete(peer_id id);
-
 uint8_t peer_add(peer_id id, uint8_t *mac);
 
 void peer_init(uint8_t max_peers);
 
-struct peer * peer_find(peer_id id);
+struct peer * peer_find_by_id(peer_id id);
+
+struct peer * peer_find_by_mac(uint8_t *mac);
+
+void peer_delete(peer_id id);
+
+void delete_all_peers(void);
+
 
 #endif /* PEER_H */

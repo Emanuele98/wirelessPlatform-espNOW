@@ -27,12 +27,17 @@ bool strip_charging;
 SemaphoreHandle_t i2c_sem;
 wpt_dynamic_payload_t dynamic_payload;
 
+static uint8_t comms_fail = 0;
+
 
 //ALERTS LIMITS
 float OVERCURRENT;
 float OVERVOLTAGE;
 float OVERTEMPERATURE;
 bool FOD_ACTIVE;
+
+static uint8_t alert_count = 0;
+float voltage_window[AVG_ALERT_WINDOW], current_window[AVG_ALERT_WINDOW], temp1_window[AVG_ALERT_WINDOW], temp2_window[AVG_ALERT_WINDOW];
 
 
 void espnow_data_prepare(espnow_data_t *buf, message_type type);
@@ -82,24 +87,58 @@ void alert_timer_callback(void)
         free(buf);
         return;
     }
+
+    //todo: average window of the last 10 measurements?
+    voltage_window[alert_count] = dynamic_payload.voltage;
+    current_window[alert_count] = dynamic_payload.current;
+    temp1_window[alert_count] = dynamic_payload.temp1;
+    temp2_window[alert_count] = dynamic_payload.temp2;
+
+    // alert count keeps going between 0 and AVG_ALERT_WINDOW - 1
+    alert_count = (alert_count + 1) % AVG_ALERT_WINDOW;
+
+    //never send an alert for the first (AVG_ALERT_WINDOW - 1) checks
+    if (voltage_window[AVG_ALERT_WINDOW - 1] == 0)
+        return;
+
+    //calculate average values
+    float avg_voltage = 0, avg_current = 0, avg_temp1 = 0, avg_temp2 = 0;
+    for (int i = 0; i < AVG_ALERT_WINDOW; i++)
+    {
+        avg_voltage += voltage_window[i];
+        avg_current += current_window[i];
+        avg_temp1 += temp1_window[i];
+        avg_temp2 += temp2_window[i];
+    }
+    avg_voltage /= AVG_ALERT_WINDOW;
+    avg_current /= AVG_ALERT_WINDOW;
+    avg_temp1 /= AVG_ALERT_WINDOW;
+    avg_temp2 /= AVG_ALERT_WINDOW;
     
     //check if values are in range
-    if (dynamic_payload.voltage > OVERVOLTAGE)
-        alert_payload.overvoltage = true;
-    if (dynamic_payload.current > OVERCURRENT)
-        alert_payload.overcurrent = true;
-    if ((dynamic_payload.temp1 > OVERTEMPERATURE) || (dynamic_payload.temp2 > OVERTEMPERATURE))
-        alert_payload.overtemperature = true;
+    if (avg_voltage > OVERVOLTAGE)
+        alert_payload.overvoltage = 1;
+    if (avg_current > OVERCURRENT)
+        alert_payload.overcurrent = 1;
+    if ((avg_temp1 > OVERTEMPERATURE || avg_temp2 > OVERTEMPERATURE))
+        alert_payload.overtemperature = 1;
     //todo: check FOD
 
     //* IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
     if (alert_payload.internal)
     {
+        //locally switch off
         safely_switch_off();
         espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
         if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
             ESP_LOGE(TAG, "Send error");
         }
+        //STOP TIMERS
+        xTimerStop(dynamic_timer, 0);
+        xTimerStop(alert_timer, 0);
+        //DELETE TIMERS
+        xTimerDelete(dynamic_timer, 0);
+        xTimerDelete(alert_timer, 0);
     }
 
     free(buf);
@@ -290,11 +329,33 @@ static void espnow_task(void *pvParameter)
                 else
                 {
                     if (send_cb->status != ESP_NOW_SEND_SUCCESS) 
+                    {
                         ESP_LOGE(TAG, "ERROR SENDING DATA TO MASTER");
+                        comms_fail++;
+                        if (comms_fail > MAX_COMMS_ERROR)
+                        {
+                            ESP_LOGE(TAG, "TOO MANY COMMS ERRORS, DISCONNECTING");
+                            pad_status = PAD_DISCONNECTED;
+                            safely_switch_off();
+                            esp_now_del_peer(master_mac);
+                            xTimerStop(dynamic_timer, 0);
+                            xTimerStop(alert_timer, 0);
+                            xTimerDelete(dynamic_timer, 0);
+                            xTimerDelete(alert_timer, 0);
 
-                    //check it was sent correctly
-                    //todo: if status != 0, then resend data
-                    //todo: check retransmission count
+                            //reboot
+                            esp_restart();
+                        }
+                        else
+                        {
+                            //?retransmission
+                            // is it needed?
+                        }
+                    }
+                    else
+                    {
+                        comms_fail = 0;
+                    }
                 }
                 break;
             }
@@ -390,6 +451,24 @@ static void espnow_task(void *pvParameter)
 
                         //todo: misalignment
                         //todo: fully charged
+                    }
+                }
+                else if (addr_type == ESPNOW_DATA_ALERT)
+                {
+                    //ESP_LOGI(TAG, "Receive alert data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
+                    //REBOOT
+                    if ((recv_data->field_1 == ALERT_MESSAGE) && (recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
+                    {
+                        ESP_LOGE(TAG, "REBOOTING");
+                        safely_switch_off();
+                        esp_now_del_peer(master_mac);
+                        xTimerStop(dynamic_timer, 0);
+                        xTimerStop(alert_timer, 0);
+                        xTimerDelete(dynamic_timer, 0);
+                        xTimerDelete(alert_timer, 0);
+
+                        //reboot
+                        esp_restart();
                     }
                 }
                 else 
@@ -516,8 +595,8 @@ void app_main(void)
     espnow_init();
 
     hw_init();
-
-    //todo: switch safely off when master disappear
-    //ESP_NOW_DEINIT()
-    //WIFI_DEINIT()
+    
+    atexit(safely_switch_off);
+    atexit(esp_now_deinit);
+    atexit(esp_wifi_deinit);
 }

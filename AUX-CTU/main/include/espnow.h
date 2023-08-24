@@ -19,9 +19,13 @@
 
 #define UNIT_ROLE PAD1
 
-#define ESPNOW_QUEUE_SIZE           10
-#define BROADCAST_TIMEGAP           pdMS_TO_TICKS(1000)
-#define ALERT_TIMEGAP               pdMS_TO_TICKS(100)
+#define MAX_COMMS_ERROR         5
+
+#define ESPNOW_QUEUE_SIZE       10
+#define BROADCAST_TIMEGAP       pdMS_TO_TICKS(1000)
+#define ALERT_TIMEGAP           pdMS_TO_TICKS(100)
+
+#define ALERT_MESSAGE                       0x99
 
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
@@ -78,7 +82,8 @@ typedef enum {
     PAD_CONNECTED,          //when the pad is connected 
     PAD_LOW_POWER,          //when the pad is on low power mode
     PAD_FULL_POWER,         //when the pad is on full power mode
-    PAD_FULLY_CHARGED       //when the pad is off but a fully charged scooter is still present on it
+    PAD_FULLY_CHARGED,      //when the pad is off but a fully charged scooter is still present on it
+    PAD_ALERT,              //when the pad is on alert mode (overcurrent, overvoltage, overtemperature, FOD)
 } pad_status_t;
 
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
