@@ -22,7 +22,7 @@
 
 #define UNIT_ROLE MASTER
 
-#define MAX_COMMS_ERROR                     5
+#define MAX_COMMS_ERROR                     50
 #define MAX_BROADCASTS_BEFORE_RECONNECTION  5
 
 #define ESPNOW_TASK_SIZE                    4096
@@ -42,6 +42,7 @@
 
 #define SCOOTER_ALERT_TIMEOUT               60*5*1000  //5 minutes  
 #define PAD_ALERT_TIMEOUT                   60*5*1000  //5 minutes
+#define SCOOTER_LEFT_TIMEOUT                60*10      //10 seconds
 
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)

@@ -127,6 +127,7 @@ void alert_timer_callback(void)
     //* IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
     if (alert_payload.internal)
     {
+        pad_status = PAD_ALERT;
         //locally switch off
         safely_switch_off();
         espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
@@ -432,24 +433,34 @@ static void espnow_task(void *pvParameter)
                         if (recv_data->field_1)
                         {
                             safely_enable_full_power();
-                            strip_misalignment = false;
-                            strip_enable = false;
-                            strip_charging = true;
+                            if (!recv_data->field_4)
+                            {
+                                strip_misalignment = false;
+                                strip_enable = false;
+                                strip_charging = true;
+                            } else
+                            {
+                                strip_enable = false;
+                                strip_charging = false;
+                                strip_misalignment = true;
+                            }
+                            pad_status = PAD_FULL_POWER;
                         }
                         else if (recv_data->field_2)
                             {
                                 //safely_enable_low_power(); //todo: reactivate low power!
                                 safely_enable_full_power();
-                            }
-                            else
+                                pad_status = PAD_LOW_POWER;
+                            } else
                             {
+                                //todo: red led (locally or sent about the scooter)
+                                //todo: green led (when fully charged)
                                 safely_switch_off();
-                                strip_misalignment = false;
-                                strip_enable = false;
-                                strip_charging = false;
+                                //strip_misalignment = false;
+                                //strip_charging = false;
+                                //strip_enable = true;
                             }
 
-                        //todo: misalignment
                         //todo: fully charged
                     }
                 }
@@ -457,7 +468,7 @@ static void espnow_task(void *pvParameter)
                 {
                     //ESP_LOGI(TAG, "Receive alert data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                     //REBOOT
-                    if ((recv_data->field_1 == ALERT_MESSAGE) && (recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
+                    if ((recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
                     {
                         ESP_LOGE(TAG, "REBOOTING");
                         safely_switch_off();
@@ -466,6 +477,9 @@ static void espnow_task(void *pvParameter)
                         xTimerStop(alert_timer, 0);
                         xTimerDelete(dynamic_timer, 0);
                         xTimerDelete(alert_timer, 0);
+
+                        if (pad_status != PAD_ALERT)
+                            vTaskDelay(pdMS_TO_TICKS(recv_data->field_1 * 1000));
 
                         //reboot
                         esp_restart();

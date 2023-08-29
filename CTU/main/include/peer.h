@@ -46,6 +46,7 @@ typedef enum {
     SCOOTER_DISCONNECTED,   //when the scooter is not connected
     SCOOTER_CONNECTED,      //when the scooter is connected but not localized yet
     SCOOTER_CHARGING,       //when the position is found
+    SCOOTER_MISALIGNED,     //when the scooter is misaligned
     SCOOTER_FULLY_CHARGED,  //when the scooter is still on the pad but fully charged
     SCOOTER_ALERT           //when the scooter sent an alert (overcurrent, overvoltage, overtemperature)
 } scooter_status;
@@ -92,13 +93,15 @@ struct peer
     /* IS THERE A FULLY CHARGED SCOOTER ON THE PAD? */
     bool fully_charged;
 
+    /* MISALIGNMENT STATUS OF THE PAD */
+    bool misaligned;
+
     /* POSITION OF THE PAD UPON WHICH THE PEER IS PLACED */
     int8_t position;
 
     /** Peripheral payloads. */
     wpt_dynamic_payload_t dyn_payload;
-    wpt_alert_payload_t  alert_payload;
-
+    //wpt_alert_payload_t  alert_payload; //not using it here, prob remove it to save memory resources
 };
 
 

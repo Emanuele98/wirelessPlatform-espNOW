@@ -132,7 +132,7 @@ float i2c_read_temperature_sensor(bool n_temp_sens)
     //printf("first byte: %02x\n", first_byte);
     //printf("second byte : %02x\n", second_byte);
     value = (int16_t)(first_byte << 4 | second_byte >> 4) * 0.0625 ;
-    printf("temperature %d: %.02f [C]\n", n_temp_sens + 1 ,value);
+    //printf("temperature %d: %.02f [C]\n", n_temp_sens + 1 ,value);
 
     exit:
         xSemaphoreGive(i2c_sem);
@@ -165,8 +165,8 @@ void get_adc(void)
             curr = 0;
             adc_counter = 0;
 
-            ESP_LOGW(TAG, "Voltage: %.2f, Current: %.2f", dynamic_payload.voltage, dynamic_payload.current );
-            //vTaskDelay(pdMS_TO_TICKS(50));
+            //ESP_LOGW(TAG, "Voltage: %.2f, Current: %.2f", dynamic_payload.voltage, dynamic_payload.current );
+            vTaskDelay(pdMS_TO_TICKS(50));
         }
     }
 

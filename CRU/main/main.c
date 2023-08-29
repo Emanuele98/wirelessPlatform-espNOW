@@ -454,6 +454,7 @@ void alert_timer_callback(TimerHandle_t xTimer)
     //* IF ANY, SEND ALERT TO THE MASTER
     if (alert_payload.internal)
     {
+        scooter_status = SCOOTER_ALERT;
         espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
         if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
             ESP_LOGE(TAG, "Send error");
@@ -785,7 +786,7 @@ static void espnow_task(void *pvParameter)
                 {
                     //ESP_LOGI(TAG, "Receive alert data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                     //REBOOT
-                    if ((recv_data->field_1 == ALERT_MESSAGE) && (recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
+                    if ((recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
                     {
                         ESP_LOGE(TAG, "REBOOTING");
                         esp_now_del_peer(master_mac);
@@ -793,6 +794,9 @@ static void espnow_task(void *pvParameter)
                         xTimerStop(alert_timer, 0);
                         xTimerDelete(dynamic_timer, 0);
                         xTimerDelete(alert_timer, 0);
+
+                        if (scooter_status != SCOOTER_ALERT)
+                            vTaskDelay(pdMS_TO_TICKS(recv_data->field_1 * 1000));
 
                         //reboot
                         esp_restart();

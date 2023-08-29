@@ -83,6 +83,7 @@ typedef enum {
     SCOOTER_DISCONNECTED,   //when the scooter is not connected
     SCOOTER_CONNECTED,      //when the scooter is connected but not localized yet
     SCOOTER_CHARGING,       //when the position is found
+    SCOOTER_MISALIGNED,     //when the scooter is misalined
     SCOOTER_FULLY_CHARGED,  //when the scooter is still on the pad but fully charged
     SCOOTER_ALERT           //when the scooter sent an alert (overcurrent, overvoltage, overtemperature)
 } scooter_status_t;
