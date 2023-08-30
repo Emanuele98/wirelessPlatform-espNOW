@@ -22,16 +22,16 @@
 
 #define UNIT_ROLE MASTER
 
-#define MAX_COMMS_ERROR                     50
+#define MAX_COMMS_ERROR                     10
 #define MAX_BROADCASTS_BEFORE_RECONNECTION  5
 
 #define ESPNOW_TASK_SIZE                    4096
 #define LOC_TASK_SIZE                       2048
-#define ESPNOW_TASK_PRIORITY                8
+#define ESPNOW_TASK_PRIORITY                9
 #define LOC_TASK_PRIORITY                   9
 #define ESPNOW_QUEUE_SIZE                   50
 #define LOC_QUEUE_SIZE                      25
-#define ESPNOW_MAXDELAY                     pdMS_TO_TICKS(1000)
+#define ESPNOW_MAXDELAY                     5000    //5 seconds
 
 #define PEER_DYNAMIC_TIMER                  1000
 
@@ -40,9 +40,9 @@
 
 #define ALERT_MESSAGE                       0x99
 
-#define SCOOTER_ALERT_TIMEOUT               60*5*1000  //5 minutes  
-#define PAD_ALERT_TIMEOUT                   60*5*1000  //5 minutes
-#define SCOOTER_LEFT_TIMEOUT                60*10      //10 seconds
+#define SCOOTER_ALERT_TIMEOUT               60*5  //5 minutes  
+#define PAD_ALERT_TIMEOUT                   60*5  //5 minutes
+#define SCOOTER_LEFT_TIMEOUT                10      //10 seconds
 
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)

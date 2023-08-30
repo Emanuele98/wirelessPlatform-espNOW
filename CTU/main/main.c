@@ -25,16 +25,20 @@
 #define MIN_VOLTAGE         10
 
 #define MQTT_MIN_DELTA      0.2     //minimum delta to publish a new value
+#define MQTT_REFRESH_LIMIT    50      //mqqt is updated every 50 dynamic received messages
 
 /* LOC TIMING */
 #define REACTION_TIME       2000    //milliseconds
 
-#define MQTT_QoS            0
+#define MQTT_QoS            1
 
 static const char *TAG = "MAIN";
 //todo: create an esp_now.c file and leave this main clean
 //todo: create a wifi.c file and leave this main clean
 
+static uint8_t mqtt_refresh[NUMBER_TX + NUMBER_RX] = {0};
+
+SemaphoreHandle_t send_semaphore = NULL;
 static QueueHandle_t espnow_queue;
 static QueueHandle_t localization_queue;
 
@@ -45,6 +49,7 @@ static pad_status pads_status[NUMBER_TX] = {PAD_DISCONNECTED};
 bool connected_pads = false;
 static scooter_status scooters_status[NUMBER_RX] = {SCOOTER_DISCONNECTED};
 static bool scooter_tobechecked[NUMBER_RX] = {false};
+static bool scooters_left[NUMBER_RX] = {false};
 static uint8_t n_peer_broadcasts[NUMBER_TX + NUMBER_RX] = {0};
 
 static uint8_t Baton = 0;
@@ -150,7 +155,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_PUBLISHED:
-        ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+        //ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
         break;
     case MQTT_EVENT_DATA:
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
@@ -368,9 +373,13 @@ static void ESPNOW_SEND_CB(const uint8_t *mac_addr, esp_now_send_status_t status
     memcpy(send_cb->mac_addr, mac_addr, ESP_NOW_ETH_ALEN);
 
     send_cb->status = status;
-    if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE) {
+    if (xQueueSend(espnow_queue, &evt, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) != pdTRUE) {
         ESP_LOGW(TAG, "Send send queue fail");
     }
+
+    //give back the semaphore if status is successfull
+    if (status == ESP_NOW_SEND_SUCCESS)
+        xSemaphoreGive(send_semaphore);
 }
 
 static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
@@ -411,7 +420,7 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
         // if it is a localization message
         if (recv_data->type == ESPNOW_DATA_LOCALIZATION)
         {
-            if (xQueueSend(localization_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE)
+            if (xQueueSend(localization_queue, &evt, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) != pdTRUE)
             {
                 ESP_LOGW(TAG, "Send localization queue fail");
                 free(recv_cb->data);
@@ -420,7 +429,7 @@ static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *
         }
     }
 
-    if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE) {
+    if (xQueueSend(espnow_queue, &evt, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) != pdTRUE) {
         ESP_LOGW(TAG, "Send receive queue fail");
         free(recv_cb->data);
     }
@@ -453,7 +462,7 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
         }
 
         //if its position is found - switch its relative pad off   
-        if (scooters_status[unitID - NUMBER_TX - 1] == SCOOTER_CHARGING)
+        if (scooter->position != 0)
         {
             struct peer *pad = peer_find_by_id(scooter->position);
             if (pad == NULL)
@@ -462,38 +471,34 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
                 return;
             }
 
-            pad->full_power = false;
-            pad->low_power = false;
-            espnow_data_prepare(alert_data, ESPNOW_DATA_CONTROL, pad->id);
-            if (esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t)) != ESP_OK)
-                ESP_LOGE(TAG, "Error sending control message to pad %d", pad->id);
+            if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+            {
+                pad->full_power = false;
+                pad->low_power = false;
+                //todo: red led command or fully charged command
+                espnow_data_prepare(alert_data, ESPNOW_DATA_CONTROL, pad->id);
+                esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t));
+            } else
+                ESP_LOGE(TAG, "Could not take the send semaphore!");
         }
 
         if (data->field_4)
         {
             scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_FULLY_CHARGED;
             //todo: send command to the scooter to wait for accelerometer movement - send the movement back - disconnect the scooter
+            //todo: field 4 for leds
         }
         else   
         {
             //stay connected - send RESET command after a reasonable time
-            //reset peer - remove from the list - status disconnected
             scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_ALERT;
-            vTaskDelay(pdMS_TO_TICKS(SCOOTER_ALERT_TIMEOUT));
-            espnow_data_prepare(alert_data, ESPNOW_DATA_ALERT, unitID);
-            if (esp_now_send(scooter->mac, (uint8_t *)alert_data, sizeof(espnow_data_t)) != ESP_OK)
-                ESP_LOGE(TAG, "Error sending alert message to scooter %d", unitID);
-            
-            //HERE RECONNECT THE SCOOTER
-            // if it still connected
-            if (scooters_status[unitID - NUMBER_TX - 1] == SCOOTER_ALERT)
+            vTaskDelay(pdMS_TO_TICKS(SCOOTER_ALERT_TIMEOUT*1000));
+            if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
             {
-                scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
-                //remove peer from the esp now registered list
-                esp_now_del_peer(scooter->mac);
-                //delete peer
-                peer_delete(scooter->id);
-            }
+                espnow_data_prepare(alert_data, ESPNOW_DATA_ALERT, unitID);
+                esp_now_send(scooter->mac, (uint8_t *)alert_data, sizeof(espnow_data_t));
+            } else
+                ESP_LOGE(TAG, "Could not take the send semaphore!");
         }
     }
     else //pad
@@ -516,30 +521,25 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
                 ESP_LOGE(TAG, "Pad %d not found", unitID);
                 return;
             }
-            pad->low_power = false;
-            pad->full_power = false;
-            espnow_data_prepare(alert_data, ESPNOW_DATA_CONTROL, pad->id);
-            if (esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t)) != ESP_OK)
-                ESP_LOGE(TAG, "Error sending control message to pad %d", pad->id);
+            if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+            {
+                pad->low_power = false;
+                pad->full_power = false;
+                //todo: red led command
+                espnow_data_prepare(alert_data, ESPNOW_DATA_CONTROL, pad->id);
+                esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t));
+            } else
+                ESP_LOGE(TAG, "Could not take the send semaphore!");
 
             //stay connected - send RESET command after a reasonable time
-            //reset peer - remove from the list - status disconnected
             pads_status[unitID - 1] = PAD_ALERT;
-            vTaskDelay(pdMS_TO_TICKS(PAD_ALERT_TIMEOUT));
-            espnow_data_prepare(alert_data, ESPNOW_DATA_ALERT, unitID);
-            if (esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t)) != ESP_OK)
-                ESP_LOGE(TAG, "Error sending alert message to pad %d", unitID);
-            
-            //HERE RECONNECT THE PAD
-            // if it still connected
-            if (pads_status[unitID - 1] == PAD_ALERT)
+            vTaskDelay(pdMS_TO_TICKS(PAD_ALERT_TIMEOUT*1000));
+            if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
             {
-                pads_status[unitID - 1] = PAD_DISCONNECTED;
-                //remove peer from the esp now registered list
-                esp_now_del_peer(pad->mac);
-                //delete peer
-                peer_delete(pad->id);
-            }
+                espnow_data_prepare(alert_data, ESPNOW_DATA_ALERT, unitID);
+                esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t));
+            } else
+                ESP_LOGE(TAG, "Could not take the send semaphore!");
         }
     }
 }
@@ -561,29 +561,29 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
         static char value[50];
         if (unitID < NUMBER_TX)
         {
-            if (abs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA)
+            if ((abs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_1);
                 esp_mqtt_client_publish(client, tx_voltage[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if (abs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA)
+            if ((abs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_2);
                 esp_mqtt_client_publish(client, tx_current[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if (abs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA)
+            if ((abs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_3);
                 esp_mqtt_client_publish(client, tx_temp1[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if (abs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA)
+            if ((abs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_4);
                 esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if (abs(p->dyn_payload.tx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA)
+            if ((abs(p->dyn_payload.tx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
-                sprintf(value, "%.2f", p->dyn_payload.tx_power);
+                sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
                 esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, MQTT_QoS, 0);
             }
 
@@ -591,35 +591,35 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
         }
         else
         {
-            if (abs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA)
+            if ((abs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_1);
                 esp_mqtt_client_publish(client, rx_voltage[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
             }
-            if (abs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA)
+            if ((abs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_2);
                 esp_mqtt_client_publish(client, rx_current[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
             }
-            if (abs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA)
+            if ((abs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_3);
                 esp_mqtt_client_publish(client, rx_temp[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
             }
             /*
-            if (abs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA)
+            if ((abs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_4);
                 esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo: do we want to send it?
             }
             */
-            if (abs(p->dyn_payload.rx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA)
+            if ((abs(p->dyn_payload.rx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
-                sprintf(value, "%.2f", p->dyn_payload.rx_power);
+                sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
                 esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
             }
         }
-
+        mqtt_refresh[unitID] = (mqtt_refresh[unitID] + 1) % MQTT_REFRESH_LIMIT;
     }
     //*save the values into peer structure
     p->dyn_payload.voltage = data->field_1;
@@ -659,30 +659,34 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
         // check the scooter did not leave
         if (p->dyn_payload.voltage < SCOOTER_LEFT_LIMIT) //!maybe need to wait a minimum time?
         {
-            ESP_LOGW(TAG, "Scooter %d left", unitID);
-            scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
-            pads_status[pad->id - 1] = PAD_CONNECTED;
-            //switch off dashboard led
-            if (MQTT_ACTIVE)
-                esp_mqtt_client_publish(client, tx_status[p->position-1], "0", 0, MQTT_QoS, 0);
+            if (scooters_left[unitID - NUMBER_TX - 1])
+            {
+                ESP_LOGW(TAG, "Scooter %d left", unitID);
+                scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
+                pads_status[pad->id - 1] = PAD_CONNECTED;
+                //switch off dashboard led
+                if (MQTT_ACTIVE)
+                    esp_mqtt_client_publish(client, tx_status[p->position-1], "0", 0, MQTT_QoS, 0);
 
-            //SWITCH OFF THE RELATIVE PAD
-            pad->misaligned = false;
-            pad->full_power = false;
-            espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
-            if (esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t)) != ESP_OK)
-                ESP_LOGE(TAG, "Error sending control message to pad %d", pad->id);
-            
-            //SEND REBOOT COMMAND TO THE SCOOTER
-            espnow_data_prepare(dynamic_data, ESPNOW_DATA_ALERT, unitID);
-            if (esp_now_send(p->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t)) != ESP_OK)
-                ESP_LOGE(TAG, "Error sending alert message to scooter %d", unitID);
-            
-            //remove peer from the esp now registered list
-            esp_now_del_peer(p->mac);
-            //delete peer
-            peer_delete(p->id);
-            
+                //SEND REBOOT COMMAND TO THE SCOOTER
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                {
+                    espnow_data_prepare(dynamic_data, ESPNOW_DATA_ALERT, unitID);
+                    esp_now_send(p->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t));
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
+
+                //SWITCH OFF THE RELATIVE PAD
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                {
+                    pad->misaligned = false;
+                    pad->full_power = false;
+                    espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
+                    esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t));
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
+            }
+            scooters_left[unitID - NUMBER_TX - 1] = true;
         }
         else if (p->dyn_payload.voltage < MISALIGNED_LIMIT)
         {
@@ -691,24 +695,31 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
                 ESP_LOGW(TAG, "Scooter %d misaligned", unitID);
                 scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_MISALIGNED;
                 //SEND LED COMMAND TO RELATIVE PAD
-                pad->misaligned = true;
-                espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
-                if (esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t)) != ESP_OK)
-                    ESP_LOGE(TAG, "Error sending control message to pad %d", pad->id);
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                {
+                    pad->misaligned = true;
+                    espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
+                    esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t));
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
             }
-
-        } else
+        } 
+        else
         {
             if (scooters_status[unitID - NUMBER_TX - 1] == SCOOTER_MISALIGNED)
             {
                 ESP_LOGW(TAG, "Scooter %d aligned", unitID);
                 //SEND LED COMMAND TO RELATIVE PAD
-                pad->misaligned = false;
-                espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
-                if (esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t)) != ESP_OK)
-                    ESP_LOGE(TAG, "Error sending control message to pad %d", pad->id);
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                {
+                    pad->misaligned = false;
+                    espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
+                    esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t));
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");                
             }
             scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_CHARGING;
+            scooters_left[unitID - NUMBER_TX - 1] = false;
         }
     }
 }
@@ -753,6 +764,9 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
         return;
     }
 
+    //save message type in peer structure
+    p->last_msg_type = type;
+
     switch (type)
     {
         case ESPNOW_DATA_BROADCAST:
@@ -769,8 +783,16 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
 
         case ESPNOW_DATA_ALERT:
             // sent to tell the peer to RESET
-            buf->field_1 = SCOOTER_LEFT_TIMEOUT;
-            buf->field_2 = buf->field_3 = buf->field_4 = ALERT_MESSAGE;
+            if (!p->fully_charged)
+            {
+                buf->field_1 = SCOOTER_LEFT_TIMEOUT;
+                buf->field_2 = buf->field_3 = buf->field_4 = ALERT_MESSAGE;
+            }
+            else
+            {
+                //whatch out in send success check that deletes the peer
+                //send fully charged command
+            }
             break;
         
         case ESPNOW_DATA_DYNAMIC:
@@ -877,16 +899,15 @@ static bool pass_the_baton(espnow_data_t *loc_data)
                     ESP_LOGE(TAG, "Peer not found");
                     return 0;
                 }
-                p->low_power = 0;
-                pads_status[Baton] = PAD_CONNECTED;
-                espnow_data_prepare(loc_data, ESPNOW_DATA_CONTROL, p->id);
-                if(esp_now_send(p->mac, (uint8_t *)loc_data, sizeof(espnow_data_t)) != ESP_OK)
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    ESP_LOGE(TAG, "Send error");
-                    return 0;
-                }
-                ESP_LOGW(TAG, "pad switched OFF: %d", Baton + 1);
-
+                    p->low_power = 0;
+                    pads_status[Baton] = PAD_CONNECTED;
+                    espnow_data_prepare(loc_data, ESPNOW_DATA_CONTROL, p->id);
+                    esp_now_send(p->mac, (uint8_t *)loc_data, sizeof(espnow_data_t));
+                    ESP_LOGW(TAG, "pad switched OFF: %d", Baton + 1);
+                } else 
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
             }
             else if ((pads_status[Baton] == PAD_CONNECTED) && (loc_pads_off()))
             {                
@@ -897,16 +918,16 @@ static bool pass_the_baton(espnow_data_t *loc_data)
                     ESP_LOGE(TAG, "Peer not found");
                     return 0;
                 }
-                p->low_power = 1;
-                pads_status[Baton] = PAD_LOW_POWER;
-                espnow_data_prepare(loc_data, ESPNOW_DATA_CONTROL, p->id);
-                if(esp_now_send(p->mac, (uint8_t *)loc_data, sizeof(espnow_data_t)) != ESP_OK)
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    ESP_LOGE(TAG, "Send error");
-                    return 0;
-                }
-                baton_passed = true;
-                ESP_LOGW(TAG, "pad switched ON: %d", Baton + 1);
+                    p->low_power = 1;
+                    pads_status[Baton] = PAD_LOW_POWER;
+                    espnow_data_prepare(loc_data, ESPNOW_DATA_CONTROL, p->id);
+                    esp_now_send(p->mac, (uint8_t *)loc_data, sizeof(espnow_data_t));
+                    baton_passed = true;
+                    ESP_LOGW(TAG, "pad switched ON: %d", Baton + 1);
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
             }
 
             Baton = (Baton + 1) % NUMBER_TX;
@@ -950,11 +971,12 @@ static void localization_task(void *pvParameter)
                     scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = true;
 
                 // send command to get voltage after a minimum time
-                espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
-                if(esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    ESP_LOGE(TAG, "Send error");
-                }
+                    espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
+                    esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t));
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
                 
                 break;
             
@@ -967,11 +989,12 @@ static void localization_task(void *pvParameter)
                     scooter_tobechecked[recv_data->id - NUMBER_TX - 1] = true;
 
                 // send command to get voltage after a minimum time
-                espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
-                if(esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    ESP_LOGE(TAG, "Send error");
-                }
+                    espnow_data_prepare(localization_data, ESPNOW_DATA_LOCALIZATION, recv_data->id);
+                    esp_now_send(recv_cb->mac_addr, (uint8_t *)localization_data, sizeof(espnow_data_t));
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
         
                 break;
 
@@ -1007,12 +1030,12 @@ static void localization_task(void *pvParameter)
                     else if (recv_data->id == SCOOTER2)
                         esp_mqtt_client_publish(client, tx_scooter[pad_position], "ISIN", 0, MQTT_QoS, 0);
                 }
-                espnow_data_prepare(localization_data, ESPNOW_DATA_CONTROL, pad->id);
-                if(esp_now_send(pad->mac, (uint8_t *)localization_data, sizeof(espnow_data_t)) != ESP_OK)
+                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    ESP_LOGE(TAG, "Send error");
-                    break;
-                }
+                    espnow_data_prepare(localization_data, ESPNOW_DATA_CONTROL, pad->id);
+                    esp_now_send(pad->mac, (uint8_t *)localization_data, sizeof(espnow_data_t));
+                } else
+                    ESP_LOGE(TAG, "Could not take the send semaphore!");
                 //todo: check the loc is successfull - scooter keep charging for a minimum time OR constant check whether it left?
                 break;
 
@@ -1026,12 +1049,10 @@ static void localization_task(void *pvParameter)
     vQueueDelete(localization_queue);
     vTaskDelete(NULL);
     free(localization_data);
-
 }
 
 static void espnow_task(void *pvParameter)
 {
-
     //Create queue to process esp now events
     espnow_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
     if (espnow_queue == NULL) {
@@ -1058,42 +1079,30 @@ static void espnow_task(void *pvParameter)
                 }
                 else
                 {
+                    struct peer *p = peer_find_by_mac(send_cb->mac_addr);
+                    if (p == NULL)
+                    {
+                        ESP_LOGE(TAG, "Peer not found");
+                        break;
+                    }
                     //unicast message
                     if (send_cb->status != ESP_NOW_SEND_SUCCESS) 
                     {
                         ESP_LOGE(TAG, "ERROR SENDING DATA TO "MACSTR"", MAC2STR(send_cb->mac_addr));
-                        struct peer *p = peer_find_by_mac(send_cb->mac_addr);
-                        if (p == NULL)
-                        {
-                            ESP_LOGE(TAG, "Peer not found");
-                            break;
-                        }
                         comms_fail++;
 
-                        //! WHAT TO DO? ALLOW IT FOR NOW TO SEE HOW BAD IT IS
-                        //SEND IT TO DEBUG MQTT TOPIC TO KEEP TRACK OF IT
-                        if (MQTT_ACTIVE)
-                        {
-                            char value[50];
-                            sprintf(value, "Send failed - n. %d", comms_fail);
-                            esp_mqtt_client_publish(client, debug, value, 0, MQTT_QoS, 0);
-                        }
-
-                        //TODO: RETRANSMISSION NEEDED?
-                        // IF YES - NEED A SEMAPHORE TO AVOID SENDING OF OTHER MESSAGES IN THE MEANWHILE
-
-                        //FOR NOW ASSUMPTION - NEVER HAPPENS. IF IT DOES, SEND ALERT TO REBOOT THE PEER
-                        /*
-                        espnow_data_prepare(espnow_data, ESPNOW_DATA_ALERT, p->id);
-                        if (esp_now_send(p->mac, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
-                            ESP_LOGE(TAG, "Send error");
-                        }
-                        */
-
-                        //for now
+                        //*MAX_COMMS_CONSECUTIVE_ERRORS --> RESTART
                         if (comms_fail > MAX_COMMS_ERROR)
                         {
                             ESP_LOGE(TAG, "TOO MANY COMMS ERRORS, RESTARTING");
+
+                             //SEND IT TO DEBUG MQTT TOPIC TO KEEP TRACK OF IT
+                            if (MQTT_ACTIVE)
+                            {
+                                char value[50];
+                                sprintf(value, "Send failed - n. %d", comms_fail);
+                                esp_mqtt_client_publish(client, debug, value, 0, MQTT_QoS, 0);
+                            }
 
                             //delete all peers
                             delete_all_peers();
@@ -1101,19 +1110,32 @@ static void espnow_task(void *pvParameter)
                             //reboot
                             esp_restart();
                         }
-                        else
+                        else //*RETRANSMISSIONS
                         {
-                            //?retransmission
-                            // is it needed?
+                            //retransmit
+                            ESP_LOGW(TAG, "RETRANSMISSION n. %d", comms_fail);
+                            espnow_data_prepare(espnow_data, p->last_msg_type, p->id);
+                            esp_now_send(send_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t));
                         }
                     }
                     else 
                     {
                         //reset comms - we are good
                         comms_fail = 0;
+                        //if the successfull sent message was an alert - remove the peer so it can reconnect
+                        if (p->last_msg_type == ESPNOW_DATA_ALERT)
+                        {
+                            if (p->id > NUMBER_TX)
+                                scooters_status[p->id - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
+                            else
+                                pads_status[p->id - 1] = PAD_DISCONNECTED;
+                            //remove peer from the esp now registered list
+                            esp_now_del_peer(send_cb->mac_addr);
+                            //delete peer
+                            peer_delete(p->id);
+                        }
                     }
                 }
-
                 break;
             }
             case ID_ESPNOW_RECV_CB:
@@ -1152,23 +1174,31 @@ static void espnow_task(void *pvParameter)
 
                         //Send unicast data to make him stop sending broadcast msg
                         // fill in with remote alerts tresholds
-                        espnow_data_prepare(espnow_data, ESPNOW_DATA_CONTROL, unitID);
-                        if (esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
-                            ESP_LOGE(TAG, "Send error");
+                        if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                        {
+                            espnow_data_prepare(espnow_data, ESPNOW_DATA_CONTROL, unitID);
+                            esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t));
                         }
+                        else
+                            ESP_LOGE(TAG, "Could not take the send semaphore!");
 
                         if (p->id > NUMBER_TX)   
+                        {
                             scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_CONNECTED;
+                            scooters_left[unitID - NUMBER_TX - 1] = false;
+                        }
                         else
                             pads_status[unitID - 1] = PAD_CONNECTED;
 
                         // send another control message to set the dynamic timer
                         // pads will start sending dynamic data after this time
                         // scooters will wait until their position is found
-                        espnow_data_prepare(espnow_data, ESPNOW_DATA_CONTROL, unitID);
-                        if (esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
-                            ESP_LOGE(TAG, "Send error");
-                        }
+                        if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                        {
+                            espnow_data_prepare(espnow_data, ESPNOW_DATA_CONTROL, unitID);
+                            esp_now_send(recv_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t));
+                        } else
+                            ESP_LOGE(TAG, "Could not take the send semaphore!");
 
                         // then encrypt for future messages
                         esp_now_encrypt_peer(recv_cb->mac_addr);
@@ -1205,9 +1235,6 @@ static void espnow_task(void *pvParameter)
                     ESP_LOGI(TAG, "Receive DYNAMIC data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
 
                     handle_peer_dynamic(recv_data, espnow_data);
-
-                    // take care of misalignment command
-
 
                 }
                 else if (addr_type == ESPNOW_DATA_ALERT)
@@ -1262,14 +1289,25 @@ static esp_err_t espnow_init(void)
     rc = xTaskCreate(espnow_task, "espnow_task", ESPNOW_TASK_SIZE, buffer, ESPNOW_TASK_PRIORITY, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Create espnow_task fail");
+        free(buffer);
         return ESP_FAIL;
     }
 
     rc = xTaskCreate(localization_task, "localization_task", LOC_TASK_SIZE, loc_buffer, LOC_TASK_PRIORITY, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Create localization_task fail");
+        free(loc_buffer);
         return ESP_FAIL;
     }
+
+    send_semaphore = xSemaphoreCreateBinary();
+    if (send_semaphore == NULL) {
+        ESP_LOGE(TAG, "Create send semaphore fail");
+        return ESP_FAIL;
+    }
+
+    //crucial! otherwise the first message is not sent
+    xSemaphoreGive(send_semaphore);
 
     return ESP_OK;
 }
@@ -1284,8 +1322,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK( ret );
 
-    ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
-    ESP_LOGE(TAG, "length of espnow_data_t: %d", sizeof(espnow_data_t));
+    ESP_LOGE(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
     if (CONFIG_WIFI_EN)
         wifi_init();

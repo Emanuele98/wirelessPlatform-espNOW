@@ -17,9 +17,11 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 
-#define UNIT_ROLE SCOOTER1
+#define UNIT_ROLE SCOOTER2
 
-#define MAX_COMMS_ERROR         5
+#define ESPNOW_MAXDELAY         5000 //5 seconds
+
+#define MAX_COMMS_ERROR         10
 
 #define ESPNOW_QUEUE_SIZE       10
 #define BROADCAST_TIMEGAP       pdMS_TO_TICKS(1000)

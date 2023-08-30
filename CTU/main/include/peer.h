@@ -102,6 +102,9 @@ struct peer
     /** Peripheral payloads. */
     wpt_dynamic_payload_t dyn_payload;
     //wpt_alert_payload_t  alert_payload; //not using it here, prob remove it to save memory resources
+
+    /* Keep track of the last message type to allow retransmissions */
+    uint8_t last_msg_type;
 };
 
 

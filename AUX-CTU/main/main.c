@@ -2,10 +2,9 @@
 #include "led_strip.h"
 #include "aux_ctu_hw.h"
 
-#define ESPNOW_MAXDELAY 512
-
 static const char *TAG = "MAIN";
 
+SemaphoreHandle_t send_semaphore = NULL;
 static QueueHandle_t espnow_queue;
 static uint8_t master_mac[ESP_NOW_ETH_ALEN] = { 0 };
 
@@ -13,6 +12,7 @@ static uint8_t broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 esp_now_peer_num_t peer_num = {0, 0};
 
 wpt_alert_payload_t alert_payload;
+message_type last_msg_type;
 pad_status_t pad_status = PAD_DISCONNECTED;
 TimerHandle_t dynamic_timer, alert_timer, connected_leds_timer, misaligned_leds_timer, charging_leds_timer, hw_readings_timer;
 
@@ -71,10 +71,12 @@ void dynamic_timer_callback(void)
         free(buf);
         return;
     }
-    espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
-    if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
-        ESP_LOGE(TAG, "Send error");
-    }
+    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+    {
+        espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
+        esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
+    } else  
+        ESP_LOGE(TAG, "Could not take send semaphore");
 
     free(buf);
 }
@@ -130,16 +132,18 @@ void alert_timer_callback(void)
         pad_status = PAD_ALERT;
         //locally switch off
         safely_switch_off();
-        espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
-        if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK) {
-            ESP_LOGE(TAG, "Send error");
-        }
-        //STOP TIMERS
+            //STOP TIMERS
         xTimerStop(dynamic_timer, 0);
         xTimerStop(alert_timer, 0);
         //DELETE TIMERS
         xTimerDelete(dynamic_timer, 0);
         xTimerDelete(alert_timer, 0);
+        if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+        {
+            espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
+            esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
+        } else  
+            ESP_LOGE(TAG, "Could not take send semaphore");
     }
 
     free(buf);
@@ -186,6 +190,10 @@ static void ESPNOW_SEND_CB(const uint8_t *mac_addr, esp_now_send_status_t status
     if (xQueueSend(espnow_queue, &evt, ESPNOW_MAXDELAY) != pdTRUE) {
         ESP_LOGW(TAG, "Send send queue fail");
     }
+
+    //give back the semaphore if status is successfull
+    if (status == ESP_NOW_SEND_SUCCESS)
+        xSemaphoreGive(send_semaphore);
 }
 
 static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
@@ -245,6 +253,9 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type)
     // esp NOW data
     buf->id = UNIT_ROLE;
     buf->type = type;
+
+    //save last message type to allow retranmission
+    last_msg_type = type;
     
     switch (type)
     {
@@ -292,11 +303,6 @@ static void espnow_task(void *pvParameter)
     uint8_t addr_type;
     espnow_data_t *espnow_data = (espnow_data_t *)pvParameter;
 
-    ESP_LOGI(TAG, "Start sending broadcast data");
-    if (esp_now_send(broadcast_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
-        ESP_LOGE(TAG, "Send error");
-    }
-
     while (xQueueReceive(espnow_queue, &evt, portMAX_DELAY) == pdTRUE) {
         switch (evt.id) {
             case ID_ESPNOW_SEND_CB:
@@ -320,12 +326,13 @@ static void espnow_task(void *pvParameter)
                     /* Otherwise, Delay a while before sending the next data. */
                     vTaskDelay(BROADCAST_TIMEGAP);
                     
-                    espnow_data_prepare(espnow_data, ESPNOW_DATA_BROADCAST);
-
-                    /* Send the next data after the previous data is sent. */
-                    if (esp_now_send(broadcast_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t)) != ESP_OK) {
-                        ESP_LOGE(TAG, "Send error");
-                    }
+                    //send broadcast data again
+                    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                    {
+                        espnow_data_prepare(espnow_data, ESPNOW_DATA_BROADCAST);
+                        esp_now_send(broadcast_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t));
+                    } else  
+                        ESP_LOGE(TAG, "Could not take send semaphore");
                 } 
                 else
                 {
@@ -333,6 +340,8 @@ static void espnow_task(void *pvParameter)
                     {
                         ESP_LOGE(TAG, "ERROR SENDING DATA TO MASTER");
                         comms_fail++;
+
+                        //*MAX_COMMS_CONSECUTIVE_ERRORS --> RESTART
                         if (comms_fail > MAX_COMMS_ERROR)
                         {
                             ESP_LOGE(TAG, "TOO MANY COMMS ERRORS, DISCONNECTING");
@@ -347,10 +356,11 @@ static void espnow_task(void *pvParameter)
                             //reboot
                             esp_restart();
                         }
-                        else
+                        else //*RETRANSMISSIONS
                         {
-                            //?retransmission
-                            // is it needed?
+                            ESP_LOGW(TAG, "RETRANSMISSION n. %d", comms_fail);
+                            espnow_data_prepare(espnow_data, last_msg_type);
+                            esp_now_send(send_cb->mac_addr, (uint8_t *)espnow_data, sizeof(espnow_data_t));
                         }
                     }
                     else
@@ -376,7 +386,7 @@ static void espnow_task(void *pvParameter)
 
                 if (addr_type == ESPNOW_DATA_BROADCAST) 
                 {
-                    ESP_LOGI(TAG, "Receive broadcast data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
+                    //ESP_LOGI(TAG, "Receive broadcast data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
                     //! ignore it as it comes from other peers
                 }
                 else if(addr_type == ESPNOW_DATA_CONTROL) 
@@ -456,9 +466,10 @@ static void espnow_task(void *pvParameter)
                                 //todo: red led (locally or sent about the scooter)
                                 //todo: green led (when fully charged)
                                 safely_switch_off();
-                                //strip_misalignment = false;
-                                //strip_charging = false;
-                                //strip_enable = true;
+                                //todo: check alert/fully charged/scooter left and control leds
+                                strip_misalignment = false;
+                                strip_charging = false;
+                                strip_enable = true;
                             }
 
                         //todo: fully charged
@@ -472,7 +483,6 @@ static void espnow_task(void *pvParameter)
                     {
                         ESP_LOGE(TAG, "REBOOTING");
                         safely_switch_off();
-                        esp_now_del_peer(master_mac);
                         xTimerStop(dynamic_timer, 0);
                         xTimerStop(alert_timer, 0);
                         xTimerDelete(dynamic_timer, 0);
@@ -480,6 +490,8 @@ static void espnow_task(void *pvParameter)
 
                         if (pad_status != PAD_ALERT)
                             vTaskDelay(pdMS_TO_TICKS(recv_data->field_1 * 1000));
+
+                        esp_now_del_peer(master_mac);
 
                         //reboot
                         esp_restart();
@@ -504,6 +516,8 @@ static void espnow_task(void *pvParameter)
 
 static esp_err_t espnow_init(void)
 {
+    uint8_t rc;
+
     //Create queue to process callbacks from espnow
     espnow_queue = xQueueCreate(ESPNOW_QUEUE_SIZE, sizeof(espnow_event_t));
     if (espnow_queue == NULL) {
@@ -530,10 +544,31 @@ static esp_err_t espnow_init(void)
         free(buffer);
         return ESP_FAIL;
     }
-    espnow_data_prepare(buffer, ESPNOW_DATA_BROADCAST);
 
     // create a task to handle espnow events
-    xTaskCreate(espnow_task, "espnow_task", 2048, buffer, 4, NULL);
+    rc = xTaskCreate(espnow_task, "espnow_task", 2048, buffer, 4, NULL);
+    if(rc != pdPASS) {
+        ESP_LOGE(TAG, "Create espnow task fail");
+        free(buffer);
+        return ESP_FAIL;
+    }
+
+    send_semaphore = xSemaphoreCreateBinary();
+    if (send_semaphore == NULL) {
+        ESP_LOGE(TAG, "Create send semaphore fail");
+        return ESP_FAIL;
+    }
+
+    //crucial! otherwise the first message is not sent
+    xSemaphoreGive(send_semaphore);
+
+    ESP_LOGI(TAG, "Start sending broadcast data");
+    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+    {
+        espnow_data_prepare(buffer, ESPNOW_DATA_BROADCAST);
+        esp_now_send(broadcast_mac, (uint8_t *) buffer, sizeof(espnow_data_t));
+    } else  
+        ESP_LOGE(TAG, "Could not take send semaphore");
 
     return ESP_OK;
 }
