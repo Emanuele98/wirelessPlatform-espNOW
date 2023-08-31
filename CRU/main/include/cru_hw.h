@@ -50,9 +50,11 @@
 #define ACK_VAL 0x0                             /*!< I2C ack value */
 #define NACK_VAL 0x1                            /*!< I2C nack value */
 
-void init_adc(void);
-void get_temp(void);
-void get_adc(void);
+/**
+ * @brief Init I2C bus and sensors
+ * 
+ */
+void init_hw(void);
 
 
 #endif

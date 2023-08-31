@@ -337,6 +337,7 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
             {
                 sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
                 esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, MQTT_QoS, 0);
+                ESP_LOGW(TAG, "TX Power: %.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
             }
 
             //todo: efficiency - must use time to correlate correctly the values
@@ -369,6 +370,7 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
             {
                 sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
                 esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo: check power values whatsupp
+                ESP_LOGW(TAG, "RX Power: %.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
             }
         }
         mqtt_refresh[unitID] = (mqtt_refresh[unitID] + 1) % MQTT_REFRESH_LIMIT;

@@ -50,15 +50,13 @@
 #define ACK_VAL 0x0                             /*!< I2C ack value */
 #define NACK_VAL 0x1                            /*!< I2C nack value */
 
-void hw_readings_timeout(void);
+void hw_init();
 
 void safely_enable_full_power(void); 
 
 void safely_enable_low_power(void);
 
 void safely_switch_off(void);
-
-esp_err_t i2c_master_init(void);
 
 
 

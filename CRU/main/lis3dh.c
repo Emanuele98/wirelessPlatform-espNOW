@@ -1,85 +1,3 @@
-/*
- * Driver for LIS3DH 3-axes digital accelerometer connected to I2C or SPI.
- *
- * This driver is for the usage with the ESP8266 and FreeRTOS (esp-open-rtos)
- * [https://github.com/SuperHouse/esp-open-rtos]. It is also working with ESP32
- * and ESP-IDF [https://github.com/espressif/esp-idf.git] as well as Linux
- * based systems using a wrapper library for ESP8266 functions.
- *
- * ---------------------------------------------------------------------------
- *
- * The BSD License (3-clause license)
- *
- * Copyright (c) 2017 Gunar Schorcht (https://github.com/gschorcht)
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- * contributors may be used to endorse or promote products derived from this
- * software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- * The information provided is believed to be accurate and reliable. The
- * copyright holder assumes no responsibility for the consequences of use
- * of such information nor for any infringement of patents or other rights
- * of third parties which may result from its use. No license is granted by
- * implication or otherwise under any patent or patent rights of the copyright
- * holder.
- * 
- *
- * 
- * Simple example with one sensor connected to I2C or SPI. It demonstrates the
- * different approaches to fetch the data. Either one of the interrupt signals
- * is used or new data are fetched periodically.
- *
- * Harware configuration:
- *
- *   I2C
- *
- *   +-----------------+   +----------+
- *   | ESP8266 / ESP32 |   | LIS3DH   |
- *   |                 |   |          |
- *   |   GPIO 14 (SCL) ----> SCL      |
- *   |   GPIO 13 (SDA) <---> SDA      |
- *   |   GPIO 5        <---- INT1     |
- *   +-----------------+   +----------+
- *
- *   SPI   
- *
- *   +-----------------+   +----------+      +-----------------+   +----------+
- *   | ESP8266         |   | LIS3DH   |      | ESP32           |   | LIS3DH   |
- *   |                 |   |          |      |                 |   |          |
- *   |   GPIO 14 (SCK) ----> SCK      |      |   GPIO 16 (SCK) ----> SCK      |
- *   |   GPIO 13 (MOSI)----> SDI      |      |   GPIO 17 (MOSI)----> SDI      |
- *   |   GPIO 12 (MISO)<---- SDO      |      |   GPIO 18 (MISO)<---- SDO      |
- *   |   GPIO 2  (CS)  ----> CS       |      |   GPIO 19 (CS)  ----> CS       |
- *   |   GPIO 5        <---- INT1     |      |   GPIO 5        <---- INT1     |
- *   +-----------------+    +---------+      +-----------------+   +----------+
- */ 
-
-#include <string.h>
-#include <stdlib.h>
-
 #include "lis3dh.h"
 
 #if defined(LIS3DH_DEBUG_LEVEL_2)
@@ -270,6 +188,10 @@ struct lis3dh_reg_click_cfg
     uint8_t unused:2;  // CLICK_CFG<7:6>  unused
 };
 
+/* sensor global variable */
+static lis3dh_sensor_t* sensor;
+
+static const char *TAG = "ACCELEROMETER";
 
 /** Forward declaration of functions for internal use */
 
@@ -1092,8 +1014,10 @@ static bool lis3dh_is_available (lis3dh_sensor_t* dev)
 
     dev->error_code = LIS3DH_OK;
 
+
     if (!lis3dh_reg_read (dev, LIS3DH_REG_WHO_AM_I, &chip_id, 1))
         return false;
+    
 
     if (chip_id != LIS3DH_CHIP_ID)
     {
@@ -1359,15 +1283,17 @@ void gpio_enable (gpio_num_t gpio, const gpio_mode_t mode)
 
 void i2c_init (int bus, gpio_num_t scl, gpio_num_t sda, uint32_t freq)
 {
-    i2c_config_t conf;
-    conf.mode = I2C_MODE_MASTER;
-    conf.sda_io_num = sda;
-    conf.scl_io_num = scl;
-    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.master.clk_speed = freq;
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = sda,
+        .scl_io_num = scl,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = freq,
+    };
+
     i2c_param_config(bus, &conf);
-    i2c_driver_install(bus, I2C_MODE_MASTER, 0, 0, 0);
+    ESP_ERROR_CHECK( i2c_driver_install(bus, I2C_MODE_MASTER, 0, 0, 0) );
 }
 
 int i2c_slave_write (uint8_t bus, uint8_t addr, const uint8_t *reg, 
@@ -1482,4 +1408,281 @@ size_t spi_transfer_pf (uint8_t bus, uint8_t cs, const uint8_t *mosi, uint8_t *m
 
     return len;
 }
+
+
+/* ACCELEROMETER INIT FUNCTION */
+
+/**
+ * Common function used to get sensor data.
+ */
+void read_data ()
+{
+    #ifdef FIFO_MODE
+
+    lis3dh_float_data_fifo_t fifo;
+
+    if (lis3dh_new_data (sensor))
+    {
+        uint8_t num = lis3dh_get_float_data_fifo (sensor, fifo);
+
+        printf("%.3f LIS3DH num=%d\n", (double)sdk_system_get_time()*1e-3, num);
+
+        for (int i=0; i < num; i++)
+            // max. full scale is +-16 g and best resolution is 1 mg, i.e. 5 digits
+            printf("%.3f LIS3DH (xyz)[g] ax=%+7.3f ay=%+7.3f az=%+7.3f\n",
+                   (double)sdk_system_get_time()*1e-3, 
+                   fifo[i].ax, fifo[i].ay, fifo[i].az);
+    }
+
+    #else
+
+    lis3dh_float_data_t  data;
+
+    if (lis3dh_new_data (sensor) &&
+        lis3dh_get_float_data (sensor, &data))
+        // max. full scale is +-16 g and best resolution is 1 mg, i.e. 5 digits
+        printf("%.3f LIS3DH (xyz)[g] ax=%+7.3f ay=%+7.3f az=%+7.3f\n",
+               (double)sdk_system_get_time()*1e-3, 
+                data.ax, data.ay, data.az);
+        
+    #endif // FIFO_MODE
+}
+
+
+#ifdef INT_USED
+/**
+ * In this case, any of the possible interrupts on interrupt signal *INT1* is
+ * used to fetch the data.
+ *
+ * When interrupts are used, the user has to define interrupt handlers that
+ * either fetches the data directly or triggers a task which is waiting to
+ * fetch the data. In this example, the interrupt handler sends an event to
+ * a waiting task to trigger the data gathering.
+ */
+
+static xQueueHandle gpio_evt_queue = NULL;
+
+// User task that fetches the sensor values.
+
+void user_task_interrupt (void *pvParameters)
+{
+    uint8_t gpio_num;
+
+    while (1)
+    {
+        if (xQueueReceive(gpio_evt_queue, &gpio_num, portMAX_DELAY))
+        {
+            lis3dh_int_data_source_t  data_src  = {};
+            lis3dh_int_event_source_t event_src = {};
+            lis3dh_int_click_source_t click_src = {};
+
+            // get the source of the interrupt and reset *INTx* signals
+            #ifdef INT_DATA
+            lis3dh_get_int_data_source  (sensor, &data_src);
+            #endif
+            #ifdef INT_EVENT
+            lis3dh_get_int_event_source (sensor, &event_src, lis3dh_int_event1_gen);
+            #endif
+            #ifdef INT_CLICK
+            lis3dh_get_int_click_source (sensor, &click_src);
+            #endif
+    
+            // in case of DRDY interrupt or inertial event interrupt read one data sample
+            if (data_src.data_ready)
+                read_data ();
+   
+            // in case of FIFO interrupts read the whole FIFO
+            else  if (data_src.fifo_watermark || data_src.fifo_overrun)
+                read_data ();
+    
+            // in case of event interrupt
+            else if (event_src.active)
+            {
+                printf("%.3f LIS3DH ", (double)sdk_system_get_time()*1e-3);
+                if (event_src.x_low)  printf("x is lower than threshold\n");
+                if (event_src.y_low)  printf("y is lower than threshold\n");
+                if (event_src.z_low)  printf("z is lower than threshold\n");
+                if (event_src.x_high) printf("x is higher than threshold\n");
+                if (event_src.y_high) printf("y is higher than threshold\n");
+                if (event_src.z_high) printf("z is higher than threshold\n");
+            }
+
+            // in case of click detection interrupt   
+            else if (click_src.active)
+               printf("%.3f LIS3DH %s\n", (double)sdk_system_get_time()*1e-3, 
+                      click_src.s_click ? "single click" : "double click");
+            
+            static uint16_t *adc1, *adc2, *adc3;
+            bool ret = lis3dh_get_adc(sensor, adc1, adc2, adc3);
+        }
+    }
+}
+
+// Interrupt handler which resumes user_task_interrupt on interrupt
+
+void IRAM int_signal_handler (uint8_t gpio)
+{
+    // send an event with GPIO to the interrupt user task
+    xQueueSendFromISR(gpio_evt_queue, &gpio, NULL);
+}
+
+#else // !INT_USED
+
+/*
+ * In this example, user task fetches the sensor values every seconds.
+ */
+
+void user_task_periodic(void *pvParameters)
+{
+    vTaskDelay (100/portTICK_PERIOD_MS);
+    
+    while (1)
+    {
+        // read sensor data
+        read_data ();
+        
+        // passive waiting until 1 second is over
+        vTaskDelay(100/portTICK_PERIOD_MS);
+    }
+}
+
+#endif // INT_USED
+
+void accelerometer_init(void)
+{
+    #ifdef SPI_USED
+
+    // init the sensor connnected to SPI
+    spi_bus_init (SPI_BUS, SPI_SCK_GPIO, SPI_MISO_GPIO, SPI_MOSI_GPIO);
+
+    // init the sensor connected to SPI_BUS with SPI_CS_GPIO as chip select.
+    sensor = lis3dh_init_sensor (SPI_BUS, 0, SPI_CS_GPIO);
+    
+    #else
+
+    // init all I2C bus interfaces at which LIS3DH  sensors are connected
+    i2c_init (I2C_BUS, I2C_SCL_PIN, I2C_SDA_PIN, I2C_FREQ);
+    
+    // init the sensor with slave address LIS3DH_I2C_ADDRESS_1 connected to I2C_BUS.
+    sensor = lis3dh_init_sensor (I2C_BUS, LIS3DH_I2C_ADDRESS_2, 0);
+
+    #endif
+    
+    if (sensor) 
+    {
+        #ifdef INT_USED
+
+        /** --- INTERRUPT CONFIGURATION PART ---- */
+        
+        // Interrupt configuration has to be done before the sensor is set
+        // into measurement mode to avoid losing interrupts
+
+        // create an event queue to send interrupt events from interrupt
+        // handler to the interrupt task
+        gpio_evt_queue = xQueueCreate(10, sizeof(uint8_t));
+
+        // configure interupt pins for *INT1* and *INT2* signals and set the interrupt handler
+        gpio_enable(INT1_PIN, GPIO_INPUT);
+        gpio_set_interrupt(INT1_PIN, GPIO_INTTYPE_EDGE_POS, int_signal_handler);
+
+        #endif  // INT_USED
+        
+        /** -- SENSOR CONFIGURATION PART --- */
+
+        // set polarity of INT signals if necessary
+        // lis3dh_config_int_signals (sensor, lis3dh_high_active);
+
+        #ifdef INT_DATA
+        // enable data interrupts on INT1 (data ready or FIFO status interrupts)
+        // data ready and FIFO status interrupts must not be enabled at the same time
+        #ifdef FIFO_MODE
+        lis3dh_enable_int (sensor, lis3dh_int_fifo_overrun  , lis3dh_int1_signal, true);
+        lis3dh_enable_int (sensor, lis3dh_int_fifo_watermark, lis3dh_int1_signal, true);
+        #else
+        lis3dh_enable_int (sensor, lis3dh_int_data_ready, lis3dh_int1_signal, true);
+        #endif // FIFO_MODE
+        #endif // INT_DATA
+        
+        #ifdef INT_EVENT
+        // enable data interrupts on INT1 
+        lis3dh_int_event_config_t event_config;
+    
+        event_config.mode = lis3dh_wake_up;
+        // event_config.mode = lis3dh_free_fall;
+        // event_config.mode = lis3dh_6d_movement;
+        // event_config.mode = lis3dh_6d_position;
+        // event_config.mode = lis3dh_4d_movement;
+        // event_config.mode = lis3dh_4d_position;
+        event_config.threshold = 10;
+        event_config.x_low_enabled  = false;
+        event_config.x_high_enabled = true;
+        event_config.y_low_enabled  = false;
+        event_config.y_high_enabled = true;
+        event_config.z_low_enabled  = false;
+        event_config.z_high_enabled = true;
+        event_config.duration = 0;
+        event_config.latch = true;
+        
+        lis3dh_set_int_event_config (sensor, &event_config, lis3dh_int_event1_gen);
+        lis3dh_enable_int (sensor, lis3dh_int_event1, lis3dh_int1_signal, true);
+        #endif // INT_EVENT
+
+        #ifdef INT_CLICK
+        // enable click interrupt on INT1
+        lis3dh_int_click_config_t click_config;
+        
+        click_config.threshold = 10;
+        click_config.x_single = false;
+        click_config.x_double = false;        
+        click_config.y_single = false;
+        click_config.y_double = false;        
+        click_config.z_single = true;
+        click_config.z_double = false;
+        click_config.latch = true;
+        click_config.time_limit   = 1;
+        click_config.time_latency = 1;
+        click_config.time_window  = 3;
+        
+        lis3dh_set_int_click_config (sensor, &click_config);
+        lis3dh_enable_int (sensor, lis3dh_int_click, lis3dh_int1_signal, true);
+        #endif // INT_CLICK
+
+        #ifdef FIFO_MODE
+        // clear FIFO and activate FIFO mode if needed
+        lis3dh_set_fifo_mode (sensor, lis3dh_bypass,  0, lis3dh_int1_signal);
+        lis3dh_set_fifo_mode (sensor, lis3dh_stream, 10, lis3dh_int1_signal);
+        #endif
+
+        // configure HPF and reset the reference by dummy read
+        lis3dh_config_hpf (sensor, lis3dh_hpf_normal, 0, true, true, true, true);
+        lis3dh_get_hpf_ref (sensor);
+        
+        // enable ADC inputs and temperature sensor for ADC input 3
+        lis3dh_enable_adc (sensor, true, true);
+        
+        // LAST STEP: Finally set scale and mode to start measurements
+        lis3dh_set_scale(sensor, lis3dh_scale_2_g);
+        lis3dh_set_mode (sensor, lis3dh_odr_10, lis3dh_high_res, true, true, true);
+
+        /** -- TASK CREATION PART --- */
+
+        // must be done last to avoid concurrency situations with the sensor
+        // configuration part
+
+        #ifdef INT_USED
+
+        // create a task that is triggered only in case of interrupts to fetch the data
+        xTaskCreate(user_task_interrupt, "user_task_interrupt", TASK_STACK_DEPTH, NULL, 2, NULL);
+        
+        #else // INT_USED
+
+        // create a user task that fetches data from sensor periodically
+        xTaskCreate(user_task_periodic, "user_task_periodic", TASK_STACK_DEPTH, NULL, 2, NULL);
+
+        #endif
+    }
+    else
+        printf("Could not initialize LIS3DH sensor\n");
+}
+
 

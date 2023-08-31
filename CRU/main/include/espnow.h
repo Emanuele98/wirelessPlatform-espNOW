@@ -17,9 +17,11 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 
-#define UNIT_ROLE SCOOTER2
+#include "cru_hw.h"
 
-#define ESPNOW_MAXDELAY         5000 //5 seconds
+#define UNIT_ROLE SCOOTER1
+
+#define ESPNOW_MAXDELAY         10000 //10 seconds
 
 #define MAX_COMMS_ERROR         10
 
@@ -122,5 +124,20 @@ typedef struct {
     float field_3;                        
     float field_4;                        
 } __attribute__((packed)) espnow_data_t;
+
+/**
+ * @brief Initialize WiFi as station and set channel.
+ * 
+ */
+void wifi_init(void);
+
+/**
+ * @brief Initialize ESPNOW and register send and receive callback function.
+ * 
+ * @return 
+ *    - ESP_OK: succeed
+ *    - others: fail
+ */
+esp_err_t espnow_init(void);
 
 #endif

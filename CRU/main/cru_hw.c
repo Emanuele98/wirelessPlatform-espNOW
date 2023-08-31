@@ -12,12 +12,12 @@ static const adc_atten_t atten2 = ADC_ATTEN_DB_6;
 static const adc_unit_t unit = ADC_UNIT_1;
 
 /* Semaphore used to protect against I2C reading simultaneously */
-extern SemaphoreHandle_t i2c_sem;
+static SemaphoreHandle_t i2c_sem;
 extern wpt_dynamic_payload_t dynamic_payload;
 static uint8_t counter = 0;
 
 
-void init_adc(void)
+static void init_adc(void)
 {
     /* init ADC */
     adc1_config_width(width);
@@ -39,7 +39,7 @@ void init_adc(void)
  * | start | slave_addr + rd_bit + ack | read 1 byte + ack  | read 1 byte + nack | stop |
  * --------|---------------------------|--------------------|--------------------|------|
  */
-float adc_read_voltage_sensor(void)
+static float adc_read_voltage_sensor(void)
 {
     float value;
 
@@ -62,7 +62,7 @@ float adc_read_voltage_sensor(void)
     }
 }
 
-float adc_read_current_sensor(void)
+static float adc_read_current_sensor(void)
 {
     float value;
 
@@ -86,7 +86,7 @@ float adc_read_current_sensor(void)
     }
 }    
 
-float i2c_read_temperature_sensor(bool n_temp_sens)
+static float i2c_read_temperature_sensor(bool n_temp_sens)
 {
     int ret;
     uint8_t first_byte, second_byte;
@@ -132,7 +132,7 @@ float i2c_read_temperature_sensor(bool n_temp_sens)
     //printf("first byte: %02x\n", first_byte);
     //printf("second byte : %02x\n", second_byte);
     value = (int16_t)(first_byte << 4 | second_byte >> 4) * 0.0625 ;
-    //printf("temperature %d: %.02f [C]\n", n_temp_sens + 1 ,value);
+    printf("temperature %d: %.02f [C]\n", n_temp_sens + 1 ,value);
 
     exit:
         xSemaphoreGive(i2c_sem);
@@ -140,7 +140,7 @@ float i2c_read_temperature_sensor(bool n_temp_sens)
 }
 
 //read dynamic parameters from ADC sensors
-void get_adc(void)
+static void get_adc(void)
 {
     static float volt = 0, curr = 0;
     static int adc_counter = 0;
@@ -175,7 +175,7 @@ void get_adc(void)
 }
 
 //read dynamic parameters from I2C sensors
-void get_temp(void)
+static void get_temp(void)
 {
     while (1)
     {
@@ -208,4 +208,64 @@ void get_temp(void)
 
     //if for any reason the loop terminates
     vTaskDelete(NULL); 
+}
+
+void init_hw(void)
+{
+    /* INIT OUTPUT PIN */
+    gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins
+    io_conf.pin_bit_mask = (1ULL<<25);
+    //disable pull-down mode
+    io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+    //SET IT LOW
+    gpio_set_level(25, 0);
+
+    /* Init adc */
+    init_adc();
+    ESP_LOGI(TAG, "ADC initialized");
+
+    /* init I2C*/
+    esp_err_t err_code;
+
+    int i2c_master_port = I2C_MASTER_NUM;
+
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = I2C_MASTER_FREQ_HZ,
+    };
+
+    i2c_param_config(i2c_master_port, &conf);
+    ESP_ERROR_CHECK( i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0) );
+    ESP_LOGI(TAG, "I2C initialized");
+
+    /* Initialize I2C semaphore */
+    i2c_sem = xSemaphoreCreateMutex();
+
+    uint8_t err;
+    // create tasks to get measurements as fast as possible
+    err = xTaskCreatePinnedToCore(get_temp, "get_temp", 2048, NULL, 5, NULL, 1);
+    if ( err != pdPASS )
+    {
+        ESP_LOGE(TAG, "Task get_temp was not created successfully");
+        return;
+    }
+    err = xTaskCreatePinnedToCore(get_adc, "get_adc", 5000, NULL, 5, NULL, 1);
+    if( err != pdPASS )
+    {
+        ESP_LOGE(TAG, "Task get_ was not created successfully");
+        return;
+    }
 }

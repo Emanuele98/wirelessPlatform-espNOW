@@ -1,5 +1,88 @@
-#ifndef __LIS3DH_H__
-#define __LIS3DH_H__
+#ifndef LIS3DH_H
+#define LIS3DH_H
+
+/*
+ * Driver for LIS3DH 3-axes digital accelerometer connected to I2C or SPI.
+ *
+ * This driver is for the usage with the ESP8266 and FreeRTOS (esp-open-rtos)
+ * [https://github.com/SuperHouse/esp-open-rtos]. It is also working with ESP32
+ * and ESP-IDF [https://github.com/espressif/esp-idf.git] as well as Linux
+ * based systems using a wrapper library for ESP8266 functions.
+ *
+ * ---------------------------------------------------------------------------
+ *
+ * The BSD License (3-clause license)
+ *
+ * Copyright (c) 2017 Gunar Schorcht (https://github.com/gschorcht)
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from this
+ * software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The information provided is believed to be accurate and reliable. The
+ * copyright holder assumes no responsibility for the consequences of use
+ * of such information nor for any infringement of patents or other rights
+ * of third parties which may result from its use. No license is granted by
+ * implication or otherwise under any patent or patent rights of the copyright
+ * holder.
+ * 
+ *
+ * 
+ * Simple example with one sensor connected to I2C or SPI. It demonstrates the
+ * different approaches to fetch the data. Either one of the interrupt signals
+ * is used or new data are fetched periodically.
+ *
+ * Harware configuration:
+ *
+ *   I2C
+ *
+ *   +-----------------+   +----------+
+ *   | ESP8266 / ESP32 |   | LIS3DH   |
+ *   |                 |   |          |
+ *   |   GPIO 14 (SCL) ----> SCL      |
+ *   |   GPIO 13 (SDA) <---> SDA      |
+ *   |   GPIO 5        <---- INT1     |
+ *   +-----------------+   +----------+
+ *
+ *   SPI   
+ *
+ *   +-----------------+   +----------+      +-----------------+   +----------+
+ *   | ESP8266         |   | LIS3DH   |      | ESP32           |   | LIS3DH   |
+ *   |                 |   |          |      |                 |   |          |
+ *   |   GPIO 14 (SCK) ----> SCK      |      |   GPIO 16 (SCK) ----> SCK      |
+ *   |   GPIO 13 (MOSI)----> SDI      |      |   GPIO 17 (MOSI)----> SDI      |
+ *   |   GPIO 12 (MISO)<---- SDO      |      |   GPIO 18 (MISO)<---- SDO      |
+ *   |   GPIO 2  (CS)  ----> CS       |      |   GPIO 19 (CS)  ----> CS       |
+ *   |   GPIO 5        <---- INT1     |      |   GPIO 5        <---- INT1     |
+ *   +-----------------+    +---------+      +-----------------+   +----------+
+ */ 
+
+
+#include <string.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,6 +104,37 @@
 
 #include "lis3dh_types.h"
 
+/* -- use following constants to define the example mode ----------- */
+
+// #define SPI_USED     // SPI interface is used, otherwise I2C
+// #define FIFO_MODE    // multiple sample read mode
+// #define INT_DATA     // data interrupts used (data ready and FIFO status)
+#define INT_EVENT    // inertial event interrupts used (wake-up, free fall or 6D/4D orientation)
+// #define INT_CLICK    // click detection interrupts used
+
+#if defined(INT_DATA) || defined(INT_EVENT) || defined(INT_CLICK)
+#define INT_USED
+#endif
+
+/** -- platform dependent definitions ------------------------------ */
+// user task stack depth for ESP32
+#define TASK_STACK_DEPTH 2048
+
+// SPI interface definitions for ESP32
+#define SPI_BUS       HSPI_HOST
+#define SPI_SCK_GPIO  16
+#define SPI_MOSI_GPIO 17
+#define SPI_MISO_GPIO 18
+#define SPI_CS_GPIO   19
+
+// I2C interface defintions for ESP32 and ESP8266
+#define I2C_BUS       0
+#define I2C_SCL_PIN   14 //19
+#define I2C_SDA_PIN   13 //18 
+#define I2C_FREQ      I2C_FREQ_100K
+
+// interrupt GPIOs defintions for ESP8266 and ESP32
+#define INT1_PIN      5 //34
 
 // Uncomment one of the following defines to enable debug output
 // #define LIS3DH_DEBUG_LEVEL_1    // only error messages
@@ -492,8 +606,13 @@ bool lis3dh_reg_write (lis3dh_sensor_t* dev,
 bool lis3dh_reg_read (lis3dh_sensor_t* dev, 
                       uint8_t reg, uint8_t *data, uint16_t len);
 
-#ifdef __cplusplus
-}
-#endif /* End of CPP guard */
 
-#endif /* __LIS3DH_H__ */
+/**
+ * @brief  Initialize the sensor
+ * 
+ */
+void accelerometer_init(void);
+
+
+
+#endif /* LIS3DH_H */
