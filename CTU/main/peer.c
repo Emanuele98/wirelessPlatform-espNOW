@@ -5,6 +5,9 @@ static const char *TAG = "PEER";
 
 static SLIST_HEAD(, peer) peers;
 
+//Whether at least one TX unit is already connected
+extern bool connected_pads;
+
 struct peer * peer_find_by_id(peer_id id)
 {
     struct peer *p;

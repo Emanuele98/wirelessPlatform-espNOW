@@ -19,8 +19,27 @@
 #include "esp_crc.h"
 
 #include "peer.h"
+#include "wifi.h"
 
 #define UNIT_ROLE MASTER
+
+/* MISALIGNMENT LIMITS */
+#define SCOOTER_LEFT_LIMIT  10
+#define MISALIGNED_LIMIT    50
+
+/* ALERTS LIMITS TX */
+#define OVERCURRENT_TX      3
+#define OVERVOLTAGE_TX      100
+#define OVERTEMPERATURE_TX  60
+#define FOD_ACTIVE          0
+/* ALERTS LIMITS RX */
+#define OVERCURRENT_RX      3
+#define OVERVOLTAGE_RX      100
+#define OVERTEMPERATURE_RX  60
+#define MIN_VOLTAGE         10
+
+/* LOC TIMING */
+#define REACTION_TIME       2000    //milliseconds
 
 #define MAX_COMMS_ERROR                     10
 #define MAX_BROADCASTS_BEFORE_RECONNECTION  5
@@ -105,5 +124,12 @@ typedef struct {
     float field_3;                        
     float field_4;                        
 } __attribute__((packed)) espnow_data_t;
+
+
+void wifi_init_connectionless(void);
+
+esp_err_t espnow_init(void);
+
+
 
 #endif // ESPNOW_H

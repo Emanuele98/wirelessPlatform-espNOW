@@ -17,7 +17,7 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 
-#define UNIT_ROLE PAD2
+#define UNIT_ROLE PAD1
 
 #define ESPNOW_MAXDELAY         5000 //5 seconds
 

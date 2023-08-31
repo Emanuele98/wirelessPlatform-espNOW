@@ -11,9 +11,6 @@
 #define NUMBER_RX 4
 #define RSSI_LIMIT -80
 
-//Whether at least one TX unit is already connected
-extern bool connected_pads;
-
 typedef enum {
     MASTER,
     PAD1,

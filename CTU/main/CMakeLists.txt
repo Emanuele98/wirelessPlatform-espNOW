@@ -1,5 +1,7 @@
 set(srcs    "main.c"
             "peer.c"
+            "wifi.c"
+            "espnow.c"
             )
 set(include_dirs include)
 
