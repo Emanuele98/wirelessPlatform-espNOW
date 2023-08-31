@@ -88,6 +88,14 @@ typedef enum {
     PAD_ALERT,              //when the pad is on alert mode (overcurrent, overvoltage, overtemperature, FOD)
 } pad_status_t;
 
+typedef enum {
+    LED_OFF,
+    LED_CHARGING,
+    LED_MISALIGNED,
+    LED_FULLY_CHARGED,
+    LED_ALERT,
+} led_command_type;
+
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct
 {

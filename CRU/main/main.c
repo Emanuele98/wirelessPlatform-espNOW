@@ -778,7 +778,7 @@ static void espnow_task(void *pvParameter)
                     }
                     else
                     {
-                        //TODO: handle the dynamic change of dynamic timer from field_3
+                        //TODO: handle the dynamic change of dynamic timer from field_3 -- compare dyn_timegap
                     }
                 }
                 else if (addr_type ==  ESPNOW_DATA_LOCALIZATION)

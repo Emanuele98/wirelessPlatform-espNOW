@@ -90,7 +90,6 @@ void alert_timer_callback(void)
         return;
     }
 
-    //todo: average window of the last 10 measurements?
     voltage_window[alert_count] = dynamic_payload.voltage;
     current_window[alert_count] = dynamic_payload.current;
     temp1_window[alert_count] = dynamic_payload.temp1;
@@ -437,18 +436,18 @@ static void espnow_task(void *pvParameter)
                     else
                     {
                         ESP_LOGI(TAG, "Master "MACSTR" already in peer list", MAC2STR(master_mac));
-                        //TODO: handle the dynamic change of dynamic timer from field_3
+                        //TODO: handle the dynamic change of dynamic timer from field_3 - check if it is different from dyn_timegap
 
                         //handle strip and switches
                         if (recv_data->field_1)
                         {
                             safely_enable_full_power();
-                            if (!recv_data->field_4)
+                            if (recv_data->field_4 == LED_CHARGING)
                             {
                                 strip_misalignment = false;
                                 strip_enable = false;
                                 strip_charging = true;
-                            } else
+                            } else if (recv_data->field_4 == LED_MISALIGNED)
                             {
                                 strip_enable = false;
                                 strip_charging = false;
@@ -458,21 +457,32 @@ static void espnow_task(void *pvParameter)
                         }
                         else if (recv_data->field_2)
                             {
-                                //safely_enable_low_power(); //todo: reactivate low power!
+                                //safely_enable_low_power(); //!todo: reactivate low power!
                                 safely_enable_full_power();
                                 pad_status = PAD_LOW_POWER;
                             } else
                             {
-                                //todo: red led (locally or sent about the scooter)
-                                //todo: green led (when fully charged)
                                 safely_switch_off();
-                                //todo: check alert/fully charged/scooter left and control leds
-                                strip_misalignment = false;
-                                strip_charging = false;
-                                strip_enable = true;
+                                pad_status = PAD_CONNECTED;
+                                if (recv_data->field_4 == LED_OFF) //scooter left
+                                {
+                                    strip_misalignment = false;
+                                    strip_charging = false;
+                                    strip_enable = true;
+                                } else if (recv_data->field_4 == LED_FULLY_CHARGED) //scooter is fully charged and still placed on it
+                                { 
+                                    strip_misalignment = false;
+                                    strip_charging = false;
+                                    strip_enable = false;
+                                    set_strip(0, 200, 0);
+                                } else if (recv_data->field_4 == LED_ALERT) //alert on the pad or the relative scooter
+                                {
+                                    strip_misalignment = false;
+                                    strip_charging = false;
+                                    strip_enable = false;
+                                    set_strip(200, 0, 0);
+                                }
                             }
-
-                        //todo: fully charged
                     }
                 }
                 else if (addr_type == ESPNOW_DATA_ALERT)

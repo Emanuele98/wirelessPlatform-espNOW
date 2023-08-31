@@ -51,6 +51,14 @@ typedef enum {
     SCOOTER_ALERT           //when the scooter sent an alert (overcurrent, overvoltage, overtemperature)
 } scooter_status;
 
+typedef enum {
+    LED_OFF,
+    LED_CHARGING,
+    LED_MISALIGNED,
+    LED_FULLY_CHARGED,
+    LED_ALERT,
+} led_command_type;
+
 /** @brief Dynamic characteristic structure. This contains elements necessary for dynamic payload. */
 typedef struct
 {
@@ -93,8 +101,8 @@ struct peer
     /* IS THERE A FULLY CHARGED SCOOTER ON THE PAD? */
     bool fully_charged;
 
-    /* MISALIGNMENT STATUS OF THE PAD */
-    bool misaligned;
+    /* LED STATUS OF THE PAD */
+    led_command_type led_command;
 
     /* POSITION OF THE PAD UPON WHICH THE PEER IS PLACED */
     int8_t position;

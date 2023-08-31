@@ -31,7 +31,7 @@
 #define LOC_TASK_PRIORITY                   9
 #define ESPNOW_QUEUE_SIZE                   50
 #define LOC_QUEUE_SIZE                      25
-#define ESPNOW_MAXDELAY                     5000    //5 seconds
+#define ESPNOW_MAXDELAY                     10000    //10 seconds
 
 #define PEER_DYNAMIC_TIMER                  1000
 

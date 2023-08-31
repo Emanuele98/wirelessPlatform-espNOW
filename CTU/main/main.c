@@ -8,6 +8,7 @@
 #include "lwip/netdb.h"
 
 #include "mqtt_client.h"
+#include <math.h>
 
 /* MISALIGNMENT LIMITS */
 #define SCOOTER_LEFT_LIMIT  10
@@ -475,18 +476,21 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
             {
                 pad->full_power = false;
                 pad->low_power = false;
-                //todo: red led command or fully charged command
+                if (data->field_4)
+                    pad->led_command = LED_FULLY_CHARGED;
+                else
+                    pad->led_command = LED_ALERT;
                 espnow_data_prepare(alert_data, ESPNOW_DATA_CONTROL, pad->id);
                 esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t));
             } else
                 ESP_LOGE(TAG, "Could not take the send semaphore!");
         }
 
+        // take care of the scooter
         if (data->field_4)
         {
             scooters_status[unitID - NUMBER_TX - 1] = SCOOTER_FULLY_CHARGED;
             //todo: send command to the scooter to wait for accelerometer movement - send the movement back - disconnect the scooter
-            //todo: field 4 for leds
         }
         else   
         {
@@ -525,7 +529,7 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
             {
                 pad->low_power = false;
                 pad->full_power = false;
-                //todo: red led command
+                pad->led_command = LED_ALERT;
                 espnow_data_prepare(alert_data, ESPNOW_DATA_CONTROL, pad->id);
                 esp_now_send(pad->mac, (uint8_t *)alert_data, sizeof(espnow_data_t));
             } else
@@ -561,27 +565,27 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
         static char value[50];
         if (unitID < NUMBER_TX)
         {
-            if ((abs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_1);
                 esp_mqtt_client_publish(client, tx_voltage[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if ((abs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_2);
                 esp_mqtt_client_publish(client, tx_current[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if ((abs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_3);
                 esp_mqtt_client_publish(client, tx_temp1[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if ((abs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_4);
                 esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if ((abs(p->dyn_payload.tx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(p->dyn_payload.tx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
                 esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, MQTT_QoS, 0);
@@ -591,29 +595,29 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
         }
         else
         {
-            if ((abs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_1 - p->dyn_payload.voltage) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_1);
                 esp_mqtt_client_publish(client, rx_voltage[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
             }
-            if ((abs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_2 - p->dyn_payload.current) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_2);
                 esp_mqtt_client_publish(client, rx_current[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
             }
-            if ((abs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_3 - p->dyn_payload.temp1) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_3);
                 esp_mqtt_client_publish(client, rx_temp[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
             }
             /*
-            if ((abs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(data->field_4 - p->dyn_payload.temp2) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", data->field_4);
                 esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo: do we want to send it?
             }
             */
-            if ((abs(p->dyn_payload.rx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(p->dyn_payload.rx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
                 sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
                 esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0);
@@ -634,6 +638,7 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
         else
             p->dyn_payload.tx_power = 0;
         
+        //todo: make an average for the power values?
         //todo: efficiency
     }
     else
@@ -655,6 +660,10 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
             ESP_LOGE(TAG, "Pad %d not found", p->position);
             return;
         }
+
+        //don't check if the pad is in alert
+        if (pads_status[pad->id - 1] == PAD_ALERT)
+            return;
 
         // check the scooter did not leave
         if (p->dyn_payload.voltage < SCOOTER_LEFT_LIMIT) //!maybe need to wait a minimum time?
@@ -679,7 +688,7 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
                 //SWITCH OFF THE RELATIVE PAD
                 if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    pad->misaligned = false;
+                    pad->led_command = LED_OFF;
                     pad->full_power = false;
                     espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
                     esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t));
@@ -697,7 +706,7 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
                 //SEND LED COMMAND TO RELATIVE PAD
                 if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    pad->misaligned = true;
+                    pad->led_command = LED_MISALIGNED;
                     espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
                     esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t));
                 } else
@@ -712,7 +721,7 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
                 //SEND LED COMMAND TO RELATIVE PAD
                 if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
-                    pad->misaligned = false;
+                    pad->led_command = LED_CHARGING;
                     espnow_data_prepare(dynamic_data, ESPNOW_DATA_CONTROL, pad->id);
                     esp_now_send(pad->mac, (uint8_t *)dynamic_data, sizeof(espnow_data_t));
                 } else
@@ -823,7 +832,7 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
                 buf->field_1 = p->full_power;
                 buf->field_2 = p->low_power;
                 buf->field_3 = PEER_DYNAMIC_TIMER; 
-                buf->field_4 = p->misaligned;
+                buf->field_4 = p->led_command;
             }
             break;
 
@@ -1036,7 +1045,6 @@ static void localization_task(void *pvParameter)
                     esp_now_send(pad->mac, (uint8_t *)localization_data, sizeof(espnow_data_t));
                 } else
                     ESP_LOGE(TAG, "Could not take the send semaphore!");
-                //todo: check the loc is successfull - scooter keep charging for a minimum time OR constant check whether it left?
                 break;
 
             default:
