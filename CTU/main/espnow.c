@@ -190,7 +190,7 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
     if (unitID > NUMBER_TX) //scooter
     {
         if (MQTT_ACTIVE)
-        {
+        {            
             if (data->field_1) // overvoltage
                 esp_mqtt_client_publish(client, rx_overvoltage[unitID - NUMBER_TX - 1], "1", 0, MQTT_QoS, 0);
             else if (data->field_2) //overcurrent
@@ -217,6 +217,10 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
                 ESP_LOGE(TAG, "Pad %d not found", scooter->position);
                 return;
             }
+
+            //status off
+            if (MQTT_ACTIVE)
+                esp_mqtt_client_publish(client, tx_status[pad->position-1], "0", 0, MQTT_QoS, 0);
 
             if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
             {
@@ -271,6 +275,11 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
                 ESP_LOGE(TAG, "Pad %d not found", unitID);
                 return;
             }
+
+            //status off
+            if (MQTT_ACTIVE)
+                esp_mqtt_client_publish(client, tx_status[pad->position-1], "0", 0, MQTT_QoS, 0);
+                
             if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
             {
                 pad->low_power = false;
@@ -333,11 +342,10 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
                 sprintf(value, "%.2f", data->field_4);
                 esp_mqtt_client_publish(client, tx_temp2[unitID-1], value, 0, MQTT_QoS, 0);
             }
-            if ((fabs(p->dyn_payload.tx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+            if ((fabs(p->dyn_payload.tx_power - (data->field_1 * data->field_2)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
-                sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
+                sprintf(value, "%.2f", (data->field_1 * data->field_2));
                 esp_mqtt_client_publish(client, tx_power[unitID-1], value, 0, MQTT_QoS, 0);
-                ESP_LOGW(TAG, "TX Power: %.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
             }
 
             //todo: efficiency - must use time to correlate correctly the values
@@ -366,11 +374,11 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
                 esp_mqtt_client_publish(client, rx_temp2[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo: do we want to send it?
             }
             */
-            if ((fabs(p->dyn_payload.rx_power - (p->dyn_payload.voltage * p->dyn_payload.current)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
+           //print fabs
+            if ((fabs(p->dyn_payload.rx_power - (data->field_1 * data->field_2)) > MQTT_MIN_DELTA) || (mqtt_refresh[unitID] == 0))
             {
-                sprintf(value, "%.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
+                sprintf(value, "%.2f", (data->field_1 * data->field_2));
                 esp_mqtt_client_publish(client, rx_power[unitID-NUMBER_TX-1], value, 0, MQTT_QoS, 0); //todo: check power values whatsupp
-                ESP_LOGW(TAG, "RX Power: %.2f", (p->dyn_payload.voltage * p->dyn_payload.current));
             }
         }
         mqtt_refresh[unitID] = (mqtt_refresh[unitID] + 1) % MQTT_REFRESH_LIMIT;
@@ -382,22 +390,11 @@ static void handle_peer_dynamic(espnow_data_t* data, espnow_data_t *dynamic_data
     p->dyn_payload.temp2 = data->field_4;
     
     if (unitID < NUMBER_TX)
-    {
-        //if ((p->dyn_payload.voltage > 10) && (p->dyn_payload.current > 1))
-            p->dyn_payload.tx_power = p->dyn_payload.voltage * p->dyn_payload.current; 
-        //else
-        //    p->dyn_payload.tx_power = 0;
-        
-        //todo: make an average for the power values?
-        //todo: efficiency
-    }
+        p->dyn_payload.tx_power = p->dyn_payload.voltage * p->dyn_payload.current;         
     else
-    {
-        //if ((p->dyn_payload.voltage > 10) && (p->dyn_payload.current > 1))
-            p->dyn_payload.rx_power = p->dyn_payload.voltage * p->dyn_payload.current;
-        //else
-        //    p->dyn_payload.rx_power = 0;
-    }
+        p->dyn_payload.rx_power = p->dyn_payload.voltage * p->dyn_payload.current;
+    //todo: make an average for the power values?
+    //todo: efficiency
     //todo: save time of this values
 
 

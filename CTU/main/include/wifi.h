@@ -14,7 +14,7 @@
 
 #define MQTT_QoS              1         //MQTT Quality of Service
 #define MQTT_MIN_DELTA        0.2       //minimum delta to publish a new value
-#define MQTT_REFRESH_LIMIT    50        //mqqt is updated AT LEAST every 50 dynamic received messages
+#define MQTT_REFRESH_LIMIT    30        //mqqt is updated AT LEAST every 30 dynamic received messages
 
 
 void wifi_init(void);

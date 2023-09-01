@@ -14,7 +14,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK( ret );
 
-    ESP_LOGE(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
+    ESP_LOGE(TAG, "[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
     if (CONFIG_WIFI_EN)
         wifi_init();

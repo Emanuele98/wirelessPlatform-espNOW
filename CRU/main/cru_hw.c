@@ -132,7 +132,7 @@ static float i2c_read_temperature_sensor(bool n_temp_sens)
     //printf("first byte: %02x\n", first_byte);
     //printf("second byte : %02x\n", second_byte);
     value = (int16_t)(first_byte << 4 | second_byte >> 4) * 0.0625 ;
-    printf("temperature %d: %.02f [C]\n", n_temp_sens + 1 ,value);
+    //printf("temperature %d: %.02f [C]\n", n_temp_sens + 1 ,value);
 
     exit:
         xSemaphoreGive(i2c_sem);
