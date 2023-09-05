@@ -1,5 +1,7 @@
 #include "lis3dh.h"
 
+extern SemaphoreHandle_t i2c_sem;
+
 #if defined(LIS3DH_DEBUG_LEVEL_2)
 #define debug(s, f, ...) printf("%s %s: " s "\n", "LIS3DH", f, ## __VA_ARGS__)
 #define debug_dev(s, f, d, ...) printf("%s %s: bus %d, addr %02x - " s "\n", "LIS3DH", f, d->bus, d->addr, ## __VA_ARGS__)
@@ -995,7 +997,7 @@ bool lis3dh_get_adc (lis3dh_sensor_t* dev,
     else if (adc3)
         *adc3 = lsb_msb_to_type ( int16_t, data, 4) >> (ctrl1.LPen ? 8 : 6);
     
-    printf ("Temp: %p\n", (void *)adc3);
+    //printf ("Temp: %p\n", (void *)adc3);
         
     return true;
 }
@@ -1299,17 +1301,27 @@ void i2c_init (int bus, gpio_num_t scl, gpio_num_t sda, uint32_t freq)
 int i2c_slave_write (uint8_t bus, uint8_t addr, const uint8_t *reg, 
                      uint8_t *data, uint32_t len)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, addr << 1 | I2C_MASTER_WRITE, true);
-    if (reg)
-        i2c_master_write_byte(cmd, *reg, true);
-    if (data)
-        i2c_master_write(cmd, data, len, true);
-    i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(bus, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
-    
+    esp_err_t err = ESP_FAIL;
+
+    if (xSemaphoreTake(i2c_sem, pdMS_TO_TICKS(1000)) == pdTRUE)
+    {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, addr << 1 | I2C_MASTER_WRITE, true);
+        if (reg)
+            i2c_master_write_byte(cmd, *reg, true);
+        if (data)
+            i2c_master_write(cmd, data, len, true);
+        i2c_master_stop(cmd);
+        err = i2c_master_cmd_begin(bus, cmd, 5000 / portTICK_PERIOD_MS);
+        i2c_cmd_link_delete(cmd);
+
+        if(err)
+            ESP_LOGE("ACCELEROMETER", "write error %x", err);
+
+        xSemaphoreGive(i2c_sem);
+    }
+        
     return err;
 }
 
@@ -1318,28 +1330,35 @@ int i2c_slave_read (uint8_t bus, uint8_t addr, const uint8_t *reg,
 {
     if (len == 0) return true;
 
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    if (reg)
-    {
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, ( addr << 1 ) | I2C_MASTER_WRITE, true);
-        i2c_master_write_byte(cmd, *reg, true);
-        if (!data)
-            i2c_master_stop(cmd);
-    }
-    if (data)
-    {
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, ( addr << 1 ) | I2C_MASTER_READ, true);
-        if (len > 1) i2c_master_read(cmd, data, len-1, I2C_ACK_VAL);
-        i2c_master_read_byte(cmd, data + len-1, I2C_NACK_VAL);
-        i2c_master_stop(cmd);
-    }
-    esp_err_t err = i2c_master_cmd_begin(bus, cmd, 1000 / portTICK_PERIOD_MS);
-    i2c_cmd_link_delete(cmd);
+    esp_err_t err = ESP_FAIL;
 
-    if(err)
-        ESP_LOGE("read", "error");
+    if (xSemaphoreTake(i2c_sem, pdMS_TO_TICKS(1000)) == pdTRUE)
+    {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        if (reg)
+        {
+            i2c_master_start(cmd);
+            i2c_master_write_byte(cmd, ( addr << 1 ) | I2C_MASTER_WRITE, true);
+            i2c_master_write_byte(cmd, *reg, true);
+            if (!data)
+                i2c_master_stop(cmd);
+        }
+        if (data)
+        {
+            i2c_master_start(cmd);
+            i2c_master_write_byte(cmd, ( addr << 1 ) | I2C_MASTER_READ, true);
+            if (len > 1) i2c_master_read(cmd, data, len-1, I2C_ACK_VAL);
+            i2c_master_read_byte(cmd, data + len-1, I2C_NACK_VAL);
+            i2c_master_stop(cmd);
+        }
+        err = i2c_master_cmd_begin(bus, cmd, portMAX_DELAY);
+        i2c_cmd_link_delete(cmd);
+
+        if(err)
+            ESP_LOGE("ACCELEROMETER", "read error %02x", err);
+        
+        xSemaphoreGive(i2c_sem);
+    }
 
     return err;
 }
@@ -1498,7 +1517,7 @@ void user_task_interrupt (void *pvParameters)
             // in case of event interrupt
             else if (event_src.active)
             {
-                printf("%.3f LIS3DH ", (double)sdk_system_get_time()*1e-3);
+                printf("LIS3DH ");
                 if (event_src.x_low)  printf("x is lower than threshold\n");
                 if (event_src.y_low)  printf("y is lower than threshold\n");
                 if (event_src.z_low)  printf("z is lower than threshold\n");
@@ -1507,13 +1526,15 @@ void user_task_interrupt (void *pvParameters)
                 if (event_src.z_high) printf("z is higher than threshold\n");
             }
 
+            //todo: send localization data to master - create function in espnow.c
+
             // in case of click detection interrupt   
             else if (click_src.active)
                printf("%.3f LIS3DH %s\n", (double)sdk_system_get_time()*1e-3, 
                       click_src.s_click ? "single click" : "double click");
             
-            static uint16_t *adc1, *adc2, *adc3;
-            bool ret = lis3dh_get_adc(sensor, adc1, adc2, adc3);
+            //static uint16_t *adc1, *adc2, *adc3;
+            //bool ret = lis3dh_get_adc(sensor, adc1, adc2, adc3);
         }
     }
 }
@@ -1564,7 +1585,7 @@ void accelerometer_init(void)
     i2c_init (I2C_BUS, I2C_SCL_PIN, I2C_SDA_PIN, I2C_FREQ);
     
     // init the sensor with slave address LIS3DH_I2C_ADDRESS_1 connected to I2C_BUS.
-    sensor = lis3dh_init_sensor (I2C_BUS, LIS3DH_I2C_ADDRESS_2, 0);
+    sensor = lis3dh_init_sensor (I2C_BUS, LIS3DH_I2C_ADDRESS_1, 0);
 
     #endif
     
@@ -1658,7 +1679,7 @@ void accelerometer_init(void)
         lis3dh_get_hpf_ref (sensor);
         
         // enable ADC inputs and temperature sensor for ADC input 3
-        lis3dh_enable_adc (sensor, true, true);
+        //lis3dh_enable_adc (sensor, true, true);
         
         // LAST STEP: Finally set scale and mode to start measurements
         lis3dh_set_scale(sensor, lis3dh_scale_2_g);
@@ -1672,7 +1693,7 @@ void accelerometer_init(void)
         #ifdef INT_USED
 
         // create a task that is triggered only in case of interrupts to fetch the data
-        xTaskCreate(user_task_interrupt, "user_task_interrupt", TASK_STACK_DEPTH, NULL, 2, NULL);
+        xTaskCreate(user_task_interrupt, "user_task_interrupt", TASK_STACK_DEPTH, NULL, 9, NULL);
         
         #else // INT_USED
 

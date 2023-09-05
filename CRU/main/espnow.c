@@ -123,7 +123,6 @@ static void alert_timer_callback(TimerHandle_t xTimer)
             fully_charged++;
             if (fully_charged > MAX_FULLY_CHARGED_ALERT_CHECKS)
             {
-                scooter_status = SCOOTER_FULLY_CHARGED;
                 alert_payload.fully_charged = 1;
             }
         }
@@ -137,7 +136,6 @@ static void alert_timer_callback(TimerHandle_t xTimer)
     //* IF ANY, SEND ALERT TO THE MASTER
     if (alert_payload.internal)
     {
-        scooter_status = SCOOTER_ALERT;
         //STOP TIMERS
         xTimerStop(dynamic_timer, 0);
         xTimerStop(alert_timer, 0);
@@ -150,6 +148,12 @@ static void alert_timer_callback(TimerHandle_t xTimer)
             esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
         } else
             ESP_LOGE(TAG, "Could not take send semaphore");  
+
+        vTaskDelay(pdMS_TO_TICKS(ACCELEROMETER_ACTIVE_TIME));
+        if (alert_payload.fully_charged)
+            scooter_status = SCOOTER_FULLY_CHARGED;
+        else
+            scooter_status = SCOOTER_ALERT;
     }
 
     free(buf);
@@ -270,6 +274,7 @@ static void espnow_data_prepare(espnow_data_t *buf, message_type type)
             break;
     
         case ESPNOW_DATA_LOCALIZATION:
+            // todo: send accelerometer when fully-charged or alert
             if (scooter_status == SCOOTER_DISCONNECTED)
             {
                 buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = LOC_START_MESSAGE; 
@@ -466,6 +471,7 @@ static void espnow_task(void *pvParameter)
                 {
                     ESP_LOGI(TAG, "Receive LOCALIZATION message");
                     
+                    //todo: if the scooter is not on fully charged or alert
                     //send the voltage back after reaction  time
                     vTaskDelay(recv_data->field_1/portTICK_PERIOD_MS);
 
@@ -475,6 +481,7 @@ static void espnow_task(void *pvParameter)
                         esp_now_send(master_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t));
                     } else  
                         ESP_LOGE(TAG, "Could not take send semaphore");
+                    //todo: else unlock the acceleremeter interrupt
                 }
                 else if (addr_type == ESPNOW_DATA_ALERT)
                 {
@@ -546,7 +553,7 @@ esp_err_t espnow_init(void)
     }
 
     // create a task to handle espnow events
-    rc = xTaskCreate(espnow_task, "espnow_task", 2048, buffer, 4, NULL);
+    rc = xTaskCreate(espnow_task, "espnow_task", 4096, buffer, 5, NULL);
     if (rc != pdPASS) {
         ESP_LOGE(TAG, "Create espnow task fail");
         free(buffer);
@@ -562,7 +569,7 @@ esp_err_t espnow_init(void)
     //crucial! otherwise the first message is not sent
     xSemaphoreGive(send_semaphore);
 
-        ESP_LOGI(TAG, "Start sending broadcast data");
+    ESP_LOGI(TAG, "Start sending broadcast data");
     
     if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
     {

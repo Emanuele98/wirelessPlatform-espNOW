@@ -12,7 +12,7 @@ static const adc_atten_t atten2 = ADC_ATTEN_DB_6;
 static const adc_unit_t unit = ADC_UNIT_1;
 
 /* Semaphore used to protect against I2C reading simultaneously */
-static SemaphoreHandle_t i2c_sem;
+SemaphoreHandle_t i2c_sem;
 extern wpt_dynamic_payload_t dynamic_payload;
 static uint8_t counter = 0;
 
@@ -118,7 +118,7 @@ static float i2c_read_temperature_sensor(bool n_temp_sens)
         i2c_master_read_byte(cmd, &first_byte, ACK_VAL);
         i2c_master_read_byte(cmd, &second_byte, NACK_VAL);
         i2c_master_stop(cmd);
-        ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+        ret = i2c_master_cmd_begin(I2C_BUS, cmd, 1000 / portTICK_RATE_MS);
         i2c_cmd_link_delete(cmd);
     }
 
@@ -166,8 +166,9 @@ static void get_adc(void)
             adc_counter = 0;
 
             //ESP_LOGW(TAG, "Voltage: %.2f, Current: %.2f", dynamic_payload.voltage, dynamic_payload.current );
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(90));
         }
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     //if for any reason the loop terminates
@@ -204,6 +205,7 @@ static void get_temp(void)
                     break;
             }
         }
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     //if for any reason the loop terminates
@@ -234,35 +236,22 @@ void init_hw(void)
     ESP_LOGI(TAG, "ADC initialized");
 
     /* init I2C*/
-    esp_err_t err_code;
-
-    int i2c_master_port = I2C_MASTER_NUM;
-
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ,
-    };
-
-    i2c_param_config(i2c_master_port, &conf);
-    ESP_ERROR_CHECK( i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0) );
-    ESP_LOGI(TAG, "I2C initialized");
-
     /* Initialize I2C semaphore */
-    i2c_sem = xSemaphoreCreateMutex();
+    i2c_sem = xSemaphoreCreateBinary();
+    xSemaphoreGive(i2c_sem);
+
+    accelerometer_init();
+    ESP_LOGI(TAG, "I2C initialized - temperature sensors and accelerometer");
 
     uint8_t err;
     // create tasks to get measurements as fast as possible
-    err = xTaskCreatePinnedToCore(get_temp, "get_temp", 2048, NULL, 5, NULL, 1);
+    err = xTaskCreate(get_temp, "get_temp", 4096, NULL, 5, NULL);
     if ( err != pdPASS )
     {
         ESP_LOGE(TAG, "Task get_temp was not created successfully");
         return;
     }
-    err = xTaskCreatePinnedToCore(get_adc, "get_adc", 5000, NULL, 5, NULL, 1);
+    err = xTaskCreate(get_adc, "get_adc", 4096, NULL, 5, NULL);
     if( err != pdPASS )
     {
         ESP_LOGE(TAG, "Task get_ was not created successfully");

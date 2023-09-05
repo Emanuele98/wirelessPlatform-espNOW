@@ -16,10 +16,6 @@ void app_main(void)
 
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 
-    //todo: initegrate accelerometer
-    /* Initialize ACCELEROMETER */
-    //accelerometer_init();
-
     /* Initialize V-A-T sensors */
     init_hw();
 

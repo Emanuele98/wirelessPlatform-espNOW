@@ -104,6 +104,8 @@
 
 #include "lis3dh_types.h"
 
+#include "cru_hw.h"
+
 /* -- use following constants to define the example mode ----------- */
 
 // #define SPI_USED     // SPI interface is used, otherwise I2C
@@ -118,7 +120,7 @@
 
 /** -- platform dependent definitions ------------------------------ */
 // user task stack depth for ESP32
-#define TASK_STACK_DEPTH 2048
+#define TASK_STACK_DEPTH 4096
 
 // SPI interface definitions for ESP32
 #define SPI_BUS       HSPI_HOST
@@ -128,13 +130,13 @@
 #define SPI_CS_GPIO   19
 
 // I2C interface defintions for ESP32 and ESP8266
-#define I2C_BUS       0
-#define I2C_SCL_PIN   14 //19
-#define I2C_SDA_PIN   13 //18 
-#define I2C_FREQ      I2C_FREQ_100K
+#define I2C_BUS       I2C_MASTER_NUM
+#define I2C_SCL_PIN   I2C_MASTER_SCL_IO
+#define I2C_SDA_PIN   I2C_MASTER_SDA_IO 
+#define I2C_FREQ      I2C_MASTER_FREQ_HZ
 
 // interrupt GPIOs defintions for ESP8266 and ESP32
-#define INT1_PIN      5 //34
+#define INT1_PIN      34 
 
 // Uncomment one of the following defines to enable debug output
 // #define LIS3DH_DEBUG_LEVEL_1    // only error messages
