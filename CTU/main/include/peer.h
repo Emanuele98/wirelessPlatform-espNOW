@@ -124,6 +124,8 @@ struct peer * peer_find_by_id(peer_id id);
 
 struct peer * peer_find_by_mac(uint8_t *mac);
 
+struct peer * peer_find_by_position(int8_t position);
+
 void peer_delete(peer_id id);
 
 void delete_all_peers(void);

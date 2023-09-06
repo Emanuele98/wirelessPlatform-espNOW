@@ -56,6 +56,7 @@
 
 #define LOC_START_MESSAGE                   0x10
 #define LOC_STOP_MESSAGE                    0x01
+#define ACCELEROMETER_MESSAGE               0x02
 
 #define ALERT_MESSAGE                       0x99
 
@@ -111,7 +112,8 @@ typedef enum {
 typedef enum {
     LOCALIZATION_START,
     LOCALIZATION_CHECK,
-    LOCALIZATION_STOP
+    LOCALIZATION_STOP,
+    ACCELEROMETER_WAKEUP
 } localization_message_type;
 
 /* ESP NOW PAYLOAD */

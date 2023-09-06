@@ -23,6 +23,7 @@ bool strip_charging;
 /* Semaphore used to protect against I2C reading simultaneously */
 wpt_dynamic_payload_t dynamic_payload;
 wpt_alert_payload_t alert_payload;
+static bool alert_sent = false;
 
 static uint8_t comms_fail = 0;
 
@@ -121,8 +122,11 @@ static void alert_timer_callback(void)
     // todo: check FOD
 
     //* IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
-    if (alert_payload.internal)
+    //alert_sent needed because this fast timer might have 1-2 cycles left before being actually stopped
+    if (alert_payload.internal) && (!alert_sent)
     {
+        ESP_LOGE(TAG, "ALERTS ACTIVE");
+        alert_sent = true;
         pad_status = PAD_ALERT;
         // locally switch off
         safely_switch_off();

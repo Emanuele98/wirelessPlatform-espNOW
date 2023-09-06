@@ -19,7 +19,7 @@
 
 #include "cru_hw.h"
 
-#define UNIT_ROLE SCOOTER2
+#define UNIT_ROLE SCOOTER1
 
 #define ESPNOW_MAXDELAY         10000 //10 seconds
 
@@ -31,6 +31,7 @@
 
 #define LOC_START_MESSAGE       0x10
 #define LOC_STOP_MESSAGE        0x01
+#define ACCELEROMETER_MESSAGE   0x02
 
 #define ALERT_MESSAGE           0x99
 
@@ -139,5 +140,10 @@ void wifi_init(void);
  *    - others: fail
  */
 esp_err_t espnow_init(void);
+
+/**
+ * @brief Send accelerometer wakeup message to the master
+*/
+void send_accelerometer_wakeup(void);
 
 #endif

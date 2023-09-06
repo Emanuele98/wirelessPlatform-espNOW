@@ -1,6 +1,7 @@
 #include "lis3dh.h"
 
 extern SemaphoreHandle_t i2c_sem;
+extern scooter_status_t scooter_status;
 
 #if defined(LIS3DH_DEBUG_LEVEL_2)
 #define debug(s, f, ...) printf("%s %s: " s "\n", "LIS3DH", f, ## __VA_ARGS__)
@@ -1526,7 +1527,7 @@ void user_task_interrupt (void *pvParameters)
                 if (event_src.z_high) printf("z is higher than threshold\n");
             }
 
-            //todo: send localization data to master - create function in espnow.c
+            send_accelerometer_wakeup();
 
             // in case of click detection interrupt   
             else if (click_src.active)
@@ -1544,7 +1545,9 @@ void user_task_interrupt (void *pvParameters)
 void IRAM int_signal_handler (uint8_t gpio)
 {
     // send an event with GPIO to the interrupt user task
-    xQueueSendFromISR(gpio_evt_queue, &gpio, NULL);
+
+    if ((scooter_status == SCOOTER_ALERT) || (scooter_status == SCOOTER_FULLY_CHARGED))
+        xQueueSendFromISR(gpio_evt_queue, &gpio, NULL);
 }
 
 #else // !INT_USED

@@ -201,9 +201,9 @@ void wifi_init(void)
         ESP_LOGI(TAG, "connected to ap SSID: %s", CONFIG_WIFI_SSID);
         
         //! print the primary and secondary channels (THE CHANNEL IS DECIDED BY THE ROUTER)
-        //uint8_t primary, secondary;
-        //esp_wifi_get_channel(&primary, &secondary);
-        //ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
+        uint8_t primary, secondary;
+        esp_wifi_get_channel(&primary, &secondary);
+        ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
         
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID: %s", CONFIG_WIFI_SSID);

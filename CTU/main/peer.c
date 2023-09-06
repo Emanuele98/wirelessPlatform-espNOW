@@ -34,6 +34,20 @@ struct peer * peer_find_by_mac(uint8_t *mac)
     return NULL;
 }
 
+struct peer * peer_find_by_position(int8_t position)
+{
+    struct peer *p;
+
+    SLIST_FOREACH(p, &peers, next) {
+        if ((p->position == position) && (p->type == SCOOTER))
+            return p;
+    }
+
+    return NULL;
+
+}
+
+
 uint8_t peer_add(peer_id id, uint8_t *mac)
 {
     struct peer *p;

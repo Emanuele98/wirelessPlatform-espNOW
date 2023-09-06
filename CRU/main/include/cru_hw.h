@@ -19,8 +19,8 @@
 
 #define AVG_ALERT_WINDOW                10
 #define FULLY_CHARGED_MIN_VOLTAGE       50
-#define FULLY_CHARGED_MAX_CURRENT       0.1
-#define MAX_FULLY_CHARGED_ALERT_CHECKS  500 
+#define FULLY_CHARGED_MAX_CURRENT       0.2
+#define MAX_FULLY_CHARGED_ALERT_CHECKS  250 
 
 /* adc */
 #define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate

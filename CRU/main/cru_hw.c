@@ -166,9 +166,8 @@ static void get_adc(void)
             adc_counter = 0;
 
             //ESP_LOGW(TAG, "Voltage: %.2f, Current: %.2f", dynamic_payload.voltage, dynamic_payload.current );
-            vTaskDelay(pdMS_TO_TICKS(90));
+            vTaskDelay(pdMS_TO_TICKS(50));
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     //if for any reason the loop terminates

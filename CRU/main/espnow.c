@@ -11,6 +11,7 @@ esp_now_peer_num_t peer_num = {0, 0};
 
 wpt_dynamic_payload_t dynamic_payload;
 wpt_alert_payload_t alert_payload;
+static bool alert_sent = false;
 
 TimerHandle_t dynamic_timer, alert_timer;
 message_type last_msg_type;
@@ -47,6 +48,26 @@ void wifi_init(void)
 #if CONFIG_ESPNOW_ENABLE_LONG_RANGE
     ESP_ERROR_CHECK( esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
 #endif
+}
+
+void send_accelerometer_wakeup(void)
+{
+    espnow_data_t *acc_data = malloc(sizeof(espnow_data_t));
+    if (acc_data == NULL) {
+        ESP_LOGE(TAG, "Malloc  buffer fail");
+        free(acc_data);
+        return;
+    }
+
+    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+    {
+        espnow_data_prepare(acc_data, ESPNOW_DATA_LOCALIZATION);
+        esp_now_send(master_mac, (uint8_t *) acc_data, sizeof(espnow_data_t));
+    } else  
+        ESP_LOGE(TAG, "Could not take send semaphore");
+    
+    free(acc_data);
+
 }
 
 static void dynamic_timer_callback(TimerHandle_t xTimer)
@@ -134,8 +155,11 @@ static void alert_timer_callback(TimerHandle_t xTimer)
 
 
     //* IF ANY, SEND ALERT TO THE MASTER
-    if (alert_payload.internal)
+    //alert_sent needed because this fast timer might have 1-2 cycles left before being actually stopped
+    if ((alert_payload.internal) && (!alert_sent))
     {
+        alert_sent = true;
+        ESP_LOGE(TAG, "ALERT");
         //STOP TIMERS
         xTimerStop(dynamic_timer, 0);
         xTimerStop(alert_timer, 0);
@@ -274,7 +298,6 @@ static void espnow_data_prepare(espnow_data_t *buf, message_type type)
             break;
     
         case ESPNOW_DATA_LOCALIZATION:
-            // todo: send accelerometer when fully-charged or alert
             if (scooter_status == SCOOTER_DISCONNECTED)
             {
                 buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = LOC_START_MESSAGE; 
@@ -292,6 +315,10 @@ static void espnow_data_prepare(espnow_data_t *buf, message_type type)
                         ESP_LOGE(TAG, "Cannot start dynamic timer");
                     }
                 }
+            }
+            else if ((scooter_status == SCOOTER_FULLY_CHARGED) || (scooter_status == SCOOTER_ALERT))
+            {
+                buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = ACCELEROMETER_MESSAGE;
             }
             break;
 
@@ -471,17 +498,25 @@ static void espnow_task(void *pvParameter)
                 {
                     ESP_LOGI(TAG, "Receive LOCALIZATION message");
                     
-                    //todo: if the scooter is not on fully charged or alert
-                    //send the voltage back after reaction  time
-                    vTaskDelay(recv_data->field_1/portTICK_PERIOD_MS);
-
-                    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                    // if the scooter has not been localized yet
+                    if (scooter_status == SCOOTER_CONNECTED)
                     {
-                        espnow_data_prepare(espnow_data, ESPNOW_DATA_LOCALIZATION);
-                        esp_now_send(master_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t));
-                    } else  
-                        ESP_LOGE(TAG, "Could not take send semaphore");
-                    //todo: else unlock the acceleremeter interrupt
+                        //send the voltage back after reaction  time
+                        vTaskDelay(recv_data->field_1/portTICK_PERIOD_MS);
+
+                        if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                        {
+                            espnow_data_prepare(espnow_data, ESPNOW_DATA_LOCALIZATION);
+                            esp_now_send(master_mac, (uint8_t *) espnow_data, sizeof(espnow_data_t));
+                        } else  
+                            ESP_LOGE(TAG, "Could not take send semaphore");
+                    }
+                    else
+                    {
+                        // received after the relative pad is on ALERT
+                        // put the scooter on alert to unlock the accelerometer data
+                        scooter_status = SCOOTER_ALERT;
+                    }
                 }
                 else if (addr_type == ESPNOW_DATA_ALERT)
                 {
