@@ -160,12 +160,6 @@ static void alert_timer_callback(TimerHandle_t xTimer)
     {
         alert_sent = true;
         ESP_LOGE(TAG, "ALERT");
-        //STOP TIMERS
-        xTimerStop(dynamic_timer, 0);
-        xTimerStop(alert_timer, 0);
-        //DELETE TIMERS
-        xTimerDelete(dynamic_timer, 0);
-        xTimerDelete(alert_timer, 0);
         if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
         {
             espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
@@ -178,6 +172,13 @@ static void alert_timer_callback(TimerHandle_t xTimer)
             scooter_status = SCOOTER_FULLY_CHARGED;
         else
             scooter_status = SCOOTER_ALERT;
+
+        //STOP TIMERS
+        xTimerStop(dynamic_timer, 0);
+        xTimerStop(alert_timer, 0);
+        //DELETE TIMERS
+        //xTimerDelete(dynamic_timer, 0);
+        //xTimerDelete(alert_timer, 0);
     }
 
     free(buf);
@@ -516,22 +517,23 @@ static void espnow_task(void *pvParameter)
                         // received after the relative pad is on ALERT
                         // put the scooter on alert to unlock the accelerometer data
                         scooter_status = SCOOTER_ALERT;
+                        xTimerStop(dynamic_timer, 0);
+                        xTimerStop(alert_timer, 0);
+                        xTimerDelete(dynamic_timer, 0);
+                        xTimerDelete(alert_timer, 0);
                     }
                 }
                 else if (addr_type == ESPNOW_DATA_ALERT)
                 {
                     //ESP_LOGI(TAG, "Receive alert data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                     //REBOOT
-                    if ((recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
+                    if ((recv_data->field_1 == ALERT_MESSAGE) && (recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
                     {
                         ESP_LOGE(TAG, "REBOOTING");
                         xTimerStop(dynamic_timer, 0);
                         xTimerStop(alert_timer, 0);
                         xTimerDelete(dynamic_timer, 0);
                         xTimerDelete(alert_timer, 0);
-
-                        if (scooter_status != SCOOTER_ALERT)
-                            vTaskDelay(pdMS_TO_TICKS(recv_data->field_1 * 1000));
 
                         esp_now_del_peer(master_mac);
 

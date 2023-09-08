@@ -24,26 +24,32 @@
 #define UNIT_ROLE MASTER
 
 /* MISALIGNMENT LIMITS */
-#define SCOOTER_LEFT_LIMIT  10
-#define MISALIGNED_LIMIT    50
+#define SCOOTER_LEFT_LIMIT                  10
+#define MISALIGNED_LIMIT                    50
 
 /* ALERTS LIMITS TX */
-#define OVERCURRENT_TX      3
-#define OVERVOLTAGE_TX      100
-#define OVERTEMPERATURE_TX  60
-#define FOD_ACTIVE          0
+#define OVERCURRENT_TX                      3
+#define OVERVOLTAGE_TX                      100
+#define OVERTEMPERATURE_TX                  60
+#define FOD_ACTIVE                          0
 /* ALERTS LIMITS RX */
-#define OVERCURRENT_RX      3
-#define OVERVOLTAGE_RX      100
-#define OVERTEMPERATURE_RX  60
-#define MIN_VOLTAGE         10
+#define OVERCURRENT_RX                      3
+#define OVERVOLTAGE_RX                      100
+#define OVERTEMPERATURE_RX                  60
+#define MIN_VOLTAGE                         10
 
 /* LOC TIMING */
-#define REACTION_TIME       2000    //milliseconds
+#define REACTION_TIME                       1000    //milliseconds
+#define BATON_PASS_TIMEOUT                  10000   //milliseconds
 
+/* DYNAMIC PAYLOAD TIMING */
+#define PEER_DYNAMIC_TIMER                  1000    //milliseconds
+
+/* COMMS CONFIG */
 #define MAX_COMMS_ERROR                     10
 #define MAX_BROADCASTS_BEFORE_RECONNECTION  5
 
+/* ESPNOW CONFIG */
 #define ESPNOW_TASK_SIZE                    4096
 #define LOC_TASK_SIZE                       2048
 #define ESPNOW_TASK_PRIORITY                9
@@ -52,18 +58,20 @@
 #define LOC_QUEUE_SIZE                      25
 #define ESPNOW_MAXDELAY                     10000    //10 seconds
 
-#define PEER_DYNAMIC_TIMER                  1000
-
+/* ESPNOW MESSAGES */
 #define LOC_START_MESSAGE                   0x10
 #define LOC_STOP_MESSAGE                    0x01
 #define ACCELEROMETER_MESSAGE               0x02
-
 #define ALERT_MESSAGE                       0x99
 
-#define SCOOTER_ALERT_TIMEOUT               60*5  //5 minutes  
-#define PAD_ALERT_TIMEOUT                   60*5  //5 minutes
-#define SCOOTER_LEFT_TIMEOUT                10      //10 seconds
-
+/* RECONNECTION TIMING */
+#define TX_FOD_TIMEOUT                      60*2     //2 minutes
+#define TX_OVERTEMPERATURE_TIMEOUT          60*2     //2 minutes
+#define TX_OVERVOLTAGE_TIMEOUT              60*2     //2 minutes
+#define TX_OVERCURRENT_TIMEOUT              60*2     //2 minutes
+#define RX_OVERTEMPERATURE_TIMEOUT          60*2     //2 minutes
+#define RX_OVERVOLTAGE_TIMEOUT              60*2     //2 minutes
+#define RX_OVERCURRENT_TIMEOUT              60*2     //2 minutes
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 

@@ -30,7 +30,7 @@
 
 #define ALERT_PARAM_TIMER_INTERVAL      pdMS_TO_TICKS(100)				       /**< Timer synced to Alert parameter characteristic (60 ms). */
 
-#define ACCELEROMETER_ACTIVE_TIME       pdMS_TO_TICKS(5000)                    /**< Accelerometer active time (5 second). */
+#define ACCELEROMETER_ACTIVE_TIME       pdMS_TO_TICKS(2000)                    /**< Accelerometer active time (2 second). */
 
 #define I2C_MASTER_SCL_IO 19                                  /*!< gpio number for I2C master clock */
 #define I2C_MASTER_SDA_IO 18                                  /*!< gpio number for I2C master data  */

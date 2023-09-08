@@ -3,6 +3,9 @@
 static const char *TAG = "WIFI";
 
 bool MQTT_ACTIVE = false;
+static bool update = false;
+time_t now;
+struct tm info;
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
@@ -64,6 +67,15 @@ static void log_error_if_nonzero(const char *message, int error_code)
 }
 
 /*
+ * @brief Callback function which is called once the Network Time Protocol is synced
+ * 
+ */
+static void sntp_callback(struct timeval *tv)
+{
+    update = true;
+}
+
+/*
  * @brief Event handler registered to receive MQTT events
  *
  *  This function is called by the MQTT client event loop.
@@ -79,6 +91,9 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     esp_mqtt_event_handle_t event = event_data;
     int msg_id;
     switch ((esp_mqtt_event_id_t)event_id) {
+    case MQTT_EVENT_BEFORE_CONNECT:
+        ESP_LOGI(TAG, "MQTT_EVENT_BEFORE_CONNECT");
+        break;
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         MQTT_ACTIVE = true;
@@ -201,9 +216,31 @@ void wifi_init(void)
         ESP_LOGI(TAG, "connected to ap SSID: %s", CONFIG_WIFI_SSID);
         
         //! print the primary and secondary channels (THE CHANNEL IS DECIDED BY THE ROUTER)
-        uint8_t primary, secondary;
-        esp_wifi_get_channel(&primary, &secondary);
-        ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
+        //uint8_t primary, secondary;
+        //esp_wifi_get_channel(&primary, &secondary);
+        //ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
+
+        //*wait for mqtt to connect
+        while (!MQTT_ACTIVE) {}
+
+        //*Simple Network Time Protocol
+        sntp_setoperatingmode(SNTP_OPMODE_POLL);
+        sntp_setservername(0, "pool.ntp.org");
+        sntp_set_time_sync_notification_cb(sntp_callback);
+        sntp_init();
+
+        // wait for time to be set
+        while(!update){}
+
+        // Set timezone to Eastern Standard Time and print local time
+        // with daylight saving
+        //setenv("TZ", "GMTGMT-1,M3.4.0/01,M10.4.0/02", 1);
+        //without
+        setenv("TZ", "GMTGMT-1", 1);
+        tzset();
+        time(&now);
+        localtime_r(&now, &info);
+        ESP_LOGE(TAG, "Time is %s", asctime(&info));
         
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID: %s", CONFIG_WIFI_SSID);

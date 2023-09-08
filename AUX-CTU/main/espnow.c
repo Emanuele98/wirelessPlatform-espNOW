@@ -123,7 +123,7 @@ static void alert_timer_callback(void)
 
     //* IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
     //alert_sent needed because this fast timer might have 1-2 cycles left before being actually stopped
-    if (alert_payload.internal) && (!alert_sent)
+    if ((alert_payload.internal) && (!alert_sent))
     {
         ESP_LOGE(TAG, "ALERTS ACTIVE");
         alert_sent = true;

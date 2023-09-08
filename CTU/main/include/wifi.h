@@ -6,7 +6,7 @@
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
 #include "mqtt_client.h"
-
+#include "esp_sntp.h"
 #include <math.h>
 
 #include "espnow.h"

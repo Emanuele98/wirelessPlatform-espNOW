@@ -65,20 +65,17 @@ typedef struct
     float             temp2;              /**< Temperature value from I2C (4 bytes). */
     float             rx_power;           /* Calculate received power if peer is CRU */
     float             tx_power;           /* Calculate transmitted power if peer is CTU */
-    struct tm         dyn_time;           /** Time */
+    time_t            dyn_time;           /** Time */
 } wpt_dynamic_payload_t;
 
 /**@brief Alert characteristic structure. This contains elements necessary for alert payload. */
 /* The union structure allows to check only 'internal', as it gets positive as soon as at one field of the struct is 1 */
 typedef union
 {
-	struct {
-		uint8_t           overtemperature:1;    
-		uint8_t           overcurrent:1;        
-		uint8_t           overvoltage:1;        
-   		uint8_t           FOD:1;                
-	};
-	uint8_t internal;
+    bool           overtemperature;    
+    bool           overcurrent;        
+    bool           overvoltage;        
+    bool           F;                      /* FOD for TX, FULLY CHARGED for RX */
 } wpt_alert_payload_t;
 
 struct peer 
@@ -94,9 +91,6 @@ struct peer
 
     /* LOCALIZATION STATUS ON/OFF */
     bool low_power;
-    
-    /* IS THERE A FULLY CHARGED SCOOTER ON THE PAD? */
-    bool fully_charged;
 
     /* LED STATUS OF THE PAD */
     led_command_type led_command;
@@ -106,7 +100,7 @@ struct peer
 
     /** Peripheral payloads. */
     wpt_dynamic_payload_t dyn_payload;
-    //wpt_alert_payload_t  alert_payload; //not using it here, prob remove it to save memory resources
+    wpt_alert_payload_t  alert_payload; //not using it here, prob remove it to save memory resources
 
     /* Keep track of the last message type to allow retransmissions */
     uint8_t last_msg_type;
@@ -124,6 +118,9 @@ struct peer * peer_find_by_id(peer_id id);
 
 struct peer * peer_find_by_mac(uint8_t *mac);
 
+/**
+ * @brief Find a scooter by its position
+*/
 struct peer * peer_find_by_position(int8_t position);
 
 void peer_delete(peer_id id);

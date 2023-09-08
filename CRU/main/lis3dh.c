@@ -1492,6 +1492,7 @@ void user_task_interrupt (void *pvParameters)
     {
         if (xQueueReceive(gpio_evt_queue, &gpio_num, portMAX_DELAY))
         {
+            
             lis3dh_int_data_source_t  data_src  = {};
             lis3dh_int_event_source_t event_src = {};
             lis3dh_int_click_source_t click_src = {};
@@ -1510,29 +1511,32 @@ void user_task_interrupt (void *pvParameters)
             // in case of DRDY interrupt or inertial event interrupt read one data sample
             if (data_src.data_ready)
                 read_data ();
-   
+
             // in case of FIFO interrupts read the whole FIFO
             else  if (data_src.fifo_watermark || data_src.fifo_overrun)
                 read_data ();
-    
+        
             // in case of event interrupt
-            else if (event_src.active)
+            else if (event_src.active) 
             {
-                printf("LIS3DH ");
-                if (event_src.x_low)  printf("x is lower than threshold\n");
-                if (event_src.y_low)  printf("y is lower than threshold\n");
-                if (event_src.z_low)  printf("z is lower than threshold\n");
-                if (event_src.x_high) printf("x is higher than threshold\n");
-                if (event_src.y_high) printf("y is higher than threshold\n");
-                if (event_src.z_high) printf("z is higher than threshold\n");
-            }
+                if ((scooter_status == SCOOTER_ALERT) || (scooter_status == SCOOTER_FULLY_CHARGED))
+                {
+                    printf("LIS3DH ");
+                    if (event_src.x_low)  printf("x is lower than threshold\n");
+                    if (event_src.y_low)  printf("y is lower than threshold\n");
+                    if (event_src.z_low)  printf("z is lower than threshold\n");
+                    if (event_src.x_high) printf("x is higher than threshold\n");
+                    if (event_src.y_high) printf("y is higher than threshold\n");
+                    if (event_src.z_high) printf("z is higher than threshold\n");
 
-            send_accelerometer_wakeup();
+                    send_accelerometer_wakeup();
+                }
+            }
 
             // in case of click detection interrupt   
             else if (click_src.active)
-               printf("%.3f LIS3DH %s\n", (double)sdk_system_get_time()*1e-3, 
-                      click_src.s_click ? "single click" : "double click");
+            printf("%.3f LIS3DH %s\n", (double)sdk_system_get_time()*1e-3, 
+                    click_src.s_click ? "single click" : "double click");
             
             //static uint16_t *adc1, *adc2, *adc3;
             //bool ret = lis3dh_get_adc(sensor, adc1, adc2, adc3);
@@ -1545,9 +1549,7 @@ void user_task_interrupt (void *pvParameters)
 void IRAM int_signal_handler (uint8_t gpio)
 {
     // send an event with GPIO to the interrupt user task
-
-    if ((scooter_status == SCOOTER_ALERT) || (scooter_status == SCOOTER_FULLY_CHARGED))
-        xQueueSendFromISR(gpio_evt_queue, &gpio, NULL);
+    xQueueSendFromISR(gpio_evt_queue, &gpio, NULL);
 }
 
 #else // !INT_USED
