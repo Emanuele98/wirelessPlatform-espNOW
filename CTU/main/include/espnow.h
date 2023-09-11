@@ -129,7 +129,7 @@ typedef enum {
 /* ESP NOW PAYLOAD */
 typedef struct { 
     uint8_t id;                           //Peer unit ID.
-    uint8_t type;                         //Broadcast or unicast ESPNOW data.
+    uint8_t type;                         //Type of ESPNOW message.
     uint16_t crc;                         //CRC16 value of ESPNOW data.
     float field_1;                        
     float field_2;                        
