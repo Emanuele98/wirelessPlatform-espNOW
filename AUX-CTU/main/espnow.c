@@ -134,8 +134,8 @@ static void alert_timer_callback(void)
         xTimerStop(dynamic_timer, 0);
         xTimerStop(alert_timer, 0);
         // DELETE TIMERS
-        xTimerDelete(dynamic_timer, 0);
-        xTimerDelete(alert_timer, 0);
+        //xTimerDelete(dynamic_timer, 0);
+        //xTimerDelete(alert_timer, 0);
         if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
         {
             espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
@@ -359,10 +359,8 @@ static void espnow_task(void *pvParameter)
                         pad_status = PAD_DISCONNECTED;
                         safely_switch_off();
                         esp_now_del_peer(master_mac);
-                        xTimerStop(dynamic_timer, 0);
-                        xTimerStop(alert_timer, 0);
-                        xTimerDelete(dynamic_timer, 0);
-                        xTimerDelete(alert_timer, 0);
+                        xTimerStop(dynamic_timer, 10);
+                        xTimerStop(alert_timer, 10);
 
                         // reboot
                         esp_restart();
@@ -511,15 +509,11 @@ static void espnow_task(void *pvParameter)
                 {
                     ESP_LOGE(TAG, "REBOOTING");
                     safely_switch_off();
-                    xTimerStop(dynamic_timer, 0);
-                    xTimerStop(alert_timer, 0);
-                    xTimerDelete(dynamic_timer, 0);
-                    xTimerDelete(alert_timer, 0);
+                    xTimerStop(dynamic_timer, 10);
+                    xTimerStop(alert_timer, 10);
 
-                    if (pad_status != PAD_ALERT)
-                        vTaskDelay(pdMS_TO_TICKS(recv_data->field_1 * 1000));
-
-                    esp_now_del_peer(master_mac);
+                    // wait time before reeboting
+                    vTaskDelay(pdMS_TO_TICKS(recv_data->field_1*1000));
 
                     // reboot
                     esp_restart();

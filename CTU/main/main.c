@@ -25,7 +25,8 @@ void init_NVS(void)
         {
             // save timePeer after connection to NTP Server
             time(&now);
-            reconnection_time = now;
+            time(&reconnection_time);
+
             for (uint8_t i = 0; i < NUMBER_TX+NUMBER_RX; i++)
             {
                 char peer_name[5];

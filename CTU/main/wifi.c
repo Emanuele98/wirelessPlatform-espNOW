@@ -73,6 +73,15 @@ static void log_error_if_nonzero(const char *message, int error_code)
 static void sntp_callback(struct timeval *tv)
 {
     update = true;
+    // Set timezone to Eastern Standard Time and print local time
+    // with daylight saving
+    //setenv("TZ", "GMTGMT-1,M3.4.0/01,M10.4.0/02", 1);
+    //without
+    setenv("TZ", "GMTGMT-1", 1);
+    tzset();
+    time(&now);
+    localtime_r(&now, &info);
+    ESP_LOGE(TAG, "Time is %s", asctime(&info));
 }
 
 /*
@@ -221,7 +230,7 @@ void wifi_init(void)
         //ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
 
         //*wait for mqtt to connect
-        while (!MQTT_ACTIVE) {}
+        //while (!MQTT_ACTIVE) {}
 
         //*Simple Network Time Protocol
         sntp_setoperatingmode(SNTP_OPMODE_POLL);
@@ -230,17 +239,7 @@ void wifi_init(void)
         sntp_init();
 
         // wait for time to be set
-        while(!update){}
-
-        // Set timezone to Eastern Standard Time and print local time
-        // with daylight saving
-        //setenv("TZ", "GMTGMT-1,M3.4.0/01,M10.4.0/02", 1);
-        //without
-        setenv("TZ", "GMTGMT-1", 1);
-        tzset();
-        time(&now);
-        localtime_r(&now, &info);
-        ESP_LOGE(TAG, "Time is %s", asctime(&info));
+        //while(!update){}
         
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID: %s", CONFIG_WIFI_SSID);

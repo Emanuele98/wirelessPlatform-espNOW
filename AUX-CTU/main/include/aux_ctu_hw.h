@@ -12,7 +12,7 @@
 #include "led_strip.h"
 #include "espnow.h"
 
-#define OR_TIME_GAP                 pdMS_TO_TICKS(30)
+#define OR_TIME_GAP                 pdMS_TO_TICKS(50)
 #define HW_READINGS_TIMER_PERIOD    pdMS_TO_TICKS(25)
 
 #define AVG_ALERT_WINDOW                10

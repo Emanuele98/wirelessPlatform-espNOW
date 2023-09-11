@@ -70,7 +70,7 @@ typedef struct
 
 /**@brief Alert characteristic structure. This contains elements necessary for alert payload. */
 /* The union structure allows to check only 'internal', as it gets positive as soon as at one field of the struct is 1 */
-typedef union
+typedef struct
 {
     bool           overtemperature;    
     bool           overcurrent;        

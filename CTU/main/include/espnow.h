@@ -52,11 +52,13 @@
 /* ESPNOW CONFIG */
 #define ESPNOW_TASK_SIZE                    4096
 #define LOC_TASK_SIZE                       2048
+#define DISCONNECTION_TASK_SIZE             2048
 #define ESPNOW_TASK_PRIORITY                9
 #define LOC_TASK_PRIORITY                   9
+#define DISCONNECTION_TASK_PRIORITY         3
 #define ESPNOW_QUEUE_SIZE                   50
 #define LOC_QUEUE_SIZE                      25
-#define ESPNOW_MAXDELAY                     10000    //10 seconds
+#define ESPNOW_MAXDELAY                     20000    //20 seconds
 
 /* ESPNOW MESSAGES */
 #define LOC_START_MESSAGE                   0x10
