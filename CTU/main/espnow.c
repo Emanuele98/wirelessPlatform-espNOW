@@ -1272,7 +1272,19 @@ static void espnow_task(void *pvParameter)
 
                     handle_peer_alert(recv_data, espnow_data);
                 }
-                else 
+                else if (addr_type == ESPNOW_DATA_CONTROL)
+                {
+                    ESP_LOGI(TAG, "Receive CONTROL data from: "MACSTR", len: %d", MAC2STR(recv_cb->mac_addr), recv_cb->data_len);
+
+                    // publish tuning params into debug topic
+                    if (MQTT_ACTIVE)
+                    {
+                        char value[100];
+                        sprintf(value, "PAD %d -- duty cycle: %.2f, tuning: %.2f, low_vds_thresh: %.2f, low_vds: %.2f", unitID, recv_data->field_1, recv_data->field_2, recv_data->field_3, recv_data->field_4);
+                        esp_mqtt_client_publish(client, debug, value, 0, MQTT_QoS, 0);
+                    }
+
+                } else
                     ESP_LOGI(TAG, "Receive unexpected message type %d data from: "MACSTR"", addr_type, MAC2STR(recv_cb->mac_addr));
                 
                 free(recv_data);
