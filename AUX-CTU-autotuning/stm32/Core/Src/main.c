@@ -132,6 +132,9 @@ transition_t transitionTable[] = {
 		{ STATE_DEPLOY, 		EVENT_OFF_BUTTON, 		STATE_IDLE,     	actionTurnOff },
 		{ STATE_CALIBRATING, 	EVENT_ALERT, 			STATE_IDLE, 		actionTurnOff },
 		{ STATE_CALIBRATING, 	EVENT_OFF_BUTTON, 		STATE_IDLE, 		actionTurnOff },
+		{ STATE_IDLE,			EVENT_OFF_BUTTON,		STATE_IDLE,			actionTurnOff},
+		{ STATE_IDLE,			EVENT_ALERT,			STATE_IDLE,			actionTurnOff},
+
 };
 //@formatter:on
 /* USER CODE END 0 */
@@ -215,6 +218,7 @@ int main(void)
 	uint16_t low_vds_threshold = 200;
 	uint16_t vds_checking_threshold = 1800;
 	int16_t tuning_threshold = 400;
+
 
 	char json[1024];
 
@@ -340,22 +344,13 @@ int main(void)
 
 
 		// handle ALERTS
-		if (temp1 > TEMP_LIMIT) {
+		if ((temp1 > TEMP_LIMIT) || (temp2 > TEMP_LIMIT)) {
 			limit_reached = true;
 			gAlertType = OT;
-		}
-
-		if (temp2 > TEMP_LIMIT) {
-			limit_reached = true;
-			gAlertType = OT;
-		}
-
-		if (voltage > VOLT_LIMIT){
+		} else if (voltage > VOLT_LIMIT){
 			limit_reached = true;
 			gAlertType = OV;
-		}
-
-		if (current > CURRENT_LIMIT) {
+		} else if (current > CURRENT_LIMIT) {
 			limit_reached = true;
 			gAlertType = OC;
 		}
@@ -835,14 +830,27 @@ void handleEvent(event_t event) {
 
 void actionTurnOn() {
 	HAL_GPIO_WritePin(EN_FULL_GPIO_Port, EN_FULL_Pin, GPIO_PIN_SET);
-
 }
 
 void actionTurnOff() {
 	HAL_GPIO_WritePin(EN_FULL_GPIO_Port, EN_FULL_Pin, GPIO_PIN_RESET);
+
+	HAL_Delay(50);
+
+	HAL_HRTIM_WaveformOutputStop(&hhrtim1,
+	HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2);
+	HAL_HRTIM_SoftwareUpdate(&hhrtim1,
+	HRTIM_TIMERUPDATE_A);
 }
 
 void actionCalibrate() {
+	HAL_HRTIM_WaveformOutputStart(&hhrtim1,
+	HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2);
+	HAL_HRTIM_SoftwareUpdate(&hhrtim1,
+	HRTIM_TIMERUPDATE_A);
+
+	HAL_Delay(50);
+
 	keepCalState = 8;
 	HAL_GPIO_WritePin(EN_FULL_GPIO_Port, EN_FULL_Pin, GPIO_PIN_SET);
 }
