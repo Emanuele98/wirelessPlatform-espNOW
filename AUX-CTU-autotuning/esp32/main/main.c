@@ -14,7 +14,6 @@ void app_main(void)
     }
     ESP_ERROR_CHECK( ret );
 
-    /* useless beacause its done by the STM32 */
     hw_init();
 
     wifi_init();

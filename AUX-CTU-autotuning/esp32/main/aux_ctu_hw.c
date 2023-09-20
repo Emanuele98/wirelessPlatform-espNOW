@@ -28,7 +28,7 @@ static void parse_received_UART(uint8_t *rx_uart)
     //ESP_LOGI(TAG, "TEMP1: %.2f", dynamic_payload.temp1);
 
     dynamic_payload.temp2 = cJSON_GetObjectItem(root, "temperature2")->valuedouble;
-    //ESP_LOGI(TAG, "TEMP2: %.2f", dynamic_payload.temp2);
+    ESP_LOGI(TAG, "TEMP2: %.2f", dynamic_payload.temp2);
 
     dynamic_payload.voltage = cJSON_GetObjectItem(root, "voltage")->valuedouble;
     //ESP_LOGI(TAG, "VOLTAGE: %.2f", dynamic_payload.voltage);
@@ -59,7 +59,7 @@ static void parse_received_UART(uint8_t *rx_uart)
 
     // send details to the master every time the duty cycle changes
     tuning_params.duty_cycle = cJSON_GetObjectItem(root, "duty")->valuedouble;
-    //ESP_LOGW(TAG, "DUTY CYCLE: %.2f", tuning_params.duty_cycle);
+    ESP_LOGI(TAG, "DUTY CYCLE: %.2f", tuning_params.duty_cycle);
     
     tuning_params.tuning = cJSON_GetObjectItem(root, "tuning")->valueint;
     //ESP_LOGW(TAG, "TUNING: %d", tuning_params.tuning);
@@ -242,6 +242,14 @@ void hw_init()
 	uart_init();
 	xTaskCreate(uart_event_task, "uart_event_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
     xTaskCreate(rx_task, "uart_rx_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
+
+    // safely switch off
+    err_code = write_STM_command(SWITCH_OFF);
+    if (err_code != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Could not switch off STM32 board");
+        return;
+    }
 
     //*LED STRIP
     install_strip(STRIP_PIN);
