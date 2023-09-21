@@ -16,7 +16,7 @@
 
 #define AVG_ALERT_WINDOW                10
 
-#define UART_BUFFER_SIZE                1024*2
+#define UART_BUFFER_SIZE                1024
 
 #define TXD_PIN                         (GPIO_NUM_4)
 #define RXD_PIN                         (GPIO_NUM_5)

@@ -14,12 +14,12 @@ void app_main(void)
     }
     ESP_ERROR_CHECK( ret );
 
-    hw_init();
-
     wifi_init();
     ret = espnow_init();
 
     ESP_ERROR_CHECK( ret );
+
+    hw_init();
 
     ESP_LOGW(TAG, "\n[APP] Free memory: %d bytes\n", (int) esp_get_free_heap_size());
 

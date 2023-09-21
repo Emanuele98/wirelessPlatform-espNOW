@@ -91,7 +91,7 @@ void send_tuning_message(void)
     {
         espnow_data_prepare(buf, ESPNOW_DATA_CONTROL);
         esp_now_send(master_mac, (uint8_t *)buf, sizeof(espnow_data_t));
-        ESP_LOGI(TAG, "Send tuning data");
+        //ESP_LOGI(TAG, "Send tuning data");
     }
     else
         ESP_LOGE(TAG, "Could not take send semaphore");
@@ -557,7 +557,7 @@ esp_err_t espnow_init(void)
     }
 
     // create a task to handle espnow events
-    rc = xTaskCreate(espnow_task, "espnow_task", 2048, buffer, 4, NULL);
+    rc = xTaskCreate(espnow_task, "espnow_task", 4096, buffer, 6, NULL);
     if (rc != pdPASS)
     {
         ESP_LOGE(TAG, "Create espnow task fail");
@@ -583,6 +583,8 @@ esp_err_t espnow_init(void)
     }
     else
         ESP_LOGE(TAG, "Could not take send semaphore");
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
     return ESP_OK;
 }

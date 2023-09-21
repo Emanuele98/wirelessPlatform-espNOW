@@ -86,8 +86,6 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 state_t currentState = STATE_IDLE;
-bool running = true;
-static volatile uint8_t keepCalState = 0;
 
 static volatile uint16_t adc_buf[ADC_BUF_LEN];
 
@@ -211,7 +209,6 @@ int main(void)
 	int16_t tuning;
 	uint16_t adc_max;
 	uint8_t low_vds_count;
-	bool limit_reached = false;
 
 	uint8_t zero_cross = 103;
 	uint8_t low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
@@ -263,7 +260,9 @@ int main(void)
 			max_duty = 0.4;
 		}
 
+		// I2C readings
 		uint8_t aRxBuffer[2];
+
 		aTxRegPtr[0] = 0x02;
 		aRxBuffer[0] = 0x00;
 		aRxBuffer[1] = 0x00;
@@ -272,50 +271,6 @@ int main(void)
 		HAL_I2C_Master_Receive(&hi2c1, (uint16_t) I2C_ADD_PWR << 1U,
 				(uint8_t*) aRxBuffer, 2, HAL_MAX_DELAY);
 		double voltage = (aRxBuffer[0] << 8 | aRxBuffer[1]) * 0.00125 * 20.1 / 5.1;
-
-		if (tuning > tuning_threshold && adc_max > vds_checking_threshold) {
-			current_duty = current_duty - 0.002;
-			low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
-			if (current_duty > min_duty) {
-				compare1_val = current_duty * signal_period;
-				compare3_val = compare1_val + signal_period / 2;
-				__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
-						HRTIM_COMPAREUNIT_1, compare1_val);
-				__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
-						HRTIM_COMPAREUNIT_3, compare3_val);
-				HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A);
-			} else {
-				limit_reached = true;
-				gAlertType = HS;
-			}
-		} else if (low_vds_count > low_vds_count_threshold
-				&& adc_max > vds_checking_threshold) {
-			current_duty = current_duty + 0.002;
-			low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
-			if (current_duty < max_duty) {
-				compare1_val = current_duty * signal_period;
-				compare3_val = compare1_val + signal_period / 2;
-				__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
-						HRTIM_COMPAREUNIT_1, compare1_val);
-				__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
-						HRTIM_COMPAREUNIT_3, compare3_val);
-				HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A);
-			} else {
-				limit_reached = true;
-				gAlertType = DI;
-			}
-		} else if (currentState == STATE_CALIBRATING
-				&& adc_max > vds_checking_threshold) {
-			cal_duty = current_duty;
-			if (voltage > 66.5) {
-				if (keepCalState == 0) {
-					handleEvent(EVENT_CALIBRATE_DONE);
-				} else {
-					keepCalState--;
-				}
-			}
-
-		}
 
 		aTxRegPtr[0] = 0x00;
 		aRxBuffer[0] = 0x00;
@@ -343,21 +298,59 @@ int main(void)
 				* 0.0000025 / 0.012;
 
 
+		// check for High Switching or Diode Conducting
+		// avoid transient cycle
+		if (adc_max > vds_checking_threshold)
+		{
+			if (tuning > tuning_threshold) {
+				current_duty = current_duty - 0.002;
+				low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
+				if (current_duty > min_duty) {
+					compare1_val = current_duty * signal_period;
+					compare3_val = compare1_val + signal_period / 2;
+					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
+							HRTIM_COMPAREUNIT_1, compare1_val);
+					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
+							HRTIM_COMPAREUNIT_3, compare3_val);
+					HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A);
+				} else {
+					gAlertType = HS;
+				}
+			} else if (low_vds_count > low_vds_count_threshold) {
+				current_duty = current_duty + 0.002;
+				low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
+				if (current_duty < max_duty) {
+					compare1_val = current_duty * signal_period;
+					compare3_val = compare1_val + signal_period / 2;
+					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
+							HRTIM_COMPAREUNIT_1, compare1_val);
+					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
+							HRTIM_COMPAREUNIT_3, compare3_val);
+					HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A);
+				} else {
+					gAlertType = DI;
+				}
+			} else if ((currentState == STATE_CALIBRATING) && (voltage > 66.5)) {
+
+				if (cal_duty != current_duty)
+					cal_duty = current_duty;
+				 else
+					handleEvent(EVENT_CALIBRATE_DONE);
+			}
+		}
+
 		// handle ALERTS
 		if ((temp1 > TEMP_LIMIT) || (temp2 > TEMP_LIMIT)) {
-			limit_reached = true;
 			gAlertType = OT;
 		} else if (voltage > VOLT_LIMIT){
-			limit_reached = true;
 			gAlertType = OV;
 		} else if (current > CURRENT_LIMIT) {
-			limit_reached = true;
 			gAlertType = OC;
 		}
 
-		if (limit_reached) {
+		if ((gAlertType != NONE) && (currentState != STATE_IDLE))
+		{
 			handleEvent(EVENT_ALERT);
-			limit_reached = false;
 			// reset waveform
 			current_duty = initial_duty;
 			compare1_val = current_duty * signal_period;
@@ -368,17 +361,14 @@ int main(void)
 			__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
 					HRTIM_COMPAREUNIT_3, compare3_val);
 			HAL_HRTIM_SoftwareUpdate(&hhrtim1, HRTIM_TIMERUPDATE_A);
-		} else {
-			gAlertType = NONE;
 		}
 
 		if (SEND_TIMER_FLAG && UART_READY && (currentState != STATE_CALIBRATING))
 		{
 			sprintf(json,
-					"{\"temperature1\":%.2f,\"temperature2\":%.2f,\"duty\":%.3f,\"voltage\":%.2f,\"current\":%.2f,\"tuning\":%i,\"low_vds\":%i,\"low_vds_threshold\":%i,\"alert\":%i",
+					"{\"temperature1\":%.2f,\"temperature2\":%.2f,\"duty\":%.3f,\"voltage\":%.2f,\"current\":%.2f,\"tuning\":%i,\"low_vds\":%i,\"low_vds_threshold\":%i,\"alert\":%i}",
 					temp1, temp2, current_duty, voltage, current, tuning,
 					low_vds_count, low_vds_count_threshold, gAlertType);
-			strcat(json, "}");
 
 			HAL_UART_Transmit_IT(&huart2, (uint8_t*) json, strlen(json));
 			UART_READY = false;
@@ -851,7 +841,6 @@ void actionCalibrate() {
 
 	HAL_Delay(50);
 
-	keepCalState = 8;
 	HAL_GPIO_WritePin(EN_FULL_GPIO_Port, EN_FULL_Pin, GPIO_PIN_SET);
 }
 
@@ -888,11 +877,14 @@ void parse_json(const char *json) {
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 	UART_READY = true;
+	if (gAlertType != NONE)
+		gAlertType = NONE;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	SEND_TIMER_FLAG = true;
+
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {

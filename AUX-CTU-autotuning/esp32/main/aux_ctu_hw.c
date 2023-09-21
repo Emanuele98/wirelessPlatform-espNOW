@@ -15,7 +15,8 @@ extern float OVERVOLTAGE;
 extern float OVERTEMPERATURE;
 extern bool  FOD_ACTIVE;
 
-float last_duty_cycle = 0.30;
+static float last_duty_cycle = 0.30;
+static bool first_duty_cycle = true;
 
 static const char* TAG = "HARDWARE";
 
@@ -28,7 +29,7 @@ static void parse_received_UART(uint8_t *rx_uart)
     //ESP_LOGI(TAG, "TEMP1: %.2f", dynamic_payload.temp1);
 
     dynamic_payload.temp2 = cJSON_GetObjectItem(root, "temperature2")->valuedouble;
-    ESP_LOGI(TAG, "TEMP2: %.2f", dynamic_payload.temp2);
+    //ESP_LOGI(TAG, "TEMP2: %.2f", dynamic_payload.temp2);
 
     dynamic_payload.voltage = cJSON_GetObjectItem(root, "voltage")->valuedouble;
     //ESP_LOGI(TAG, "VOLTAGE: %.2f", dynamic_payload.voltage);
@@ -59,7 +60,12 @@ static void parse_received_UART(uint8_t *rx_uart)
 
     // send details to the master every time the duty cycle changes
     tuning_params.duty_cycle = cJSON_GetObjectItem(root, "duty")->valuedouble;
-    ESP_LOGI(TAG, "DUTY CYCLE: %.2f", tuning_params.duty_cycle);
+    if (first_duty_cycle)
+    {
+        last_duty_cycle = tuning_params.duty_cycle;
+        first_duty_cycle = false;
+    }
+    //ESP_LOGI(TAG, "DUTY CYCLE: %.2f", tuning_params.duty_cycle);
     
     tuning_params.tuning = cJSON_GetObjectItem(root, "tuning")->valueint;
     //ESP_LOGW(TAG, "TUNING: %d", tuning_params.tuning);
@@ -73,6 +79,7 @@ static void parse_received_UART(uint8_t *rx_uart)
     if (tuning_params.duty_cycle != last_duty_cycle)
     {
         send_tuning_message();
+        ESP_LOGI(TAG, "DUTY CYCLE: %.3f", tuning_params.duty_cycle);
         last_duty_cycle = tuning_params.duty_cycle;
     }
 
@@ -161,7 +168,11 @@ static void rx_task(void)
                     buffer[rxIndex++] = data[0];
                     rxIndex = 0;
                     if (json)
+                    {
                         parse_received_UART(buffer);
+                        //ESP_LOGI(TAG, "JSON");
+                        vTaskDelay(300 / portTICK_PERIOD_MS);
+                    }
                     json = false;
                     break;
                 default:
@@ -243,20 +254,12 @@ void hw_init()
 	xTaskCreate(uart_event_task, "uart_event_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
     xTaskCreate(rx_task, "uart_rx_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
 
-    // safely switch off
-    err_code = write_STM_command(SWITCH_OFF);
-    if (err_code != ESP_OK)
-    {
-        ESP_LOGW(TAG, "Could not switch off STM32 board");
-        return;
-    }
-
     //*LED STRIP
     install_strip(STRIP_PIN);
     ESP_LOGI(TAG, "LED strip initialized successfully");
 
     // LED strip timers
-    connected_leds_timer = xTimerCreate("connected_leds", CONNECTED_LEDS_TIMER_PERIOD, pdTRUE, NULL, connected_leds);
+    connected_leds_timer = xTimerCreate("connected_leds", CONNECTED_LEDS_TIMER_PERIOD, pdTRUE, NULL, connected_leds);   
     misaligned_leds_timer = xTimerCreate("misaligned_leds", MISALIGNED_LEDS_TIMER_PERIOD, pdTRUE, NULL, misaligned_leds);
     charging_leds_timer = xTimerCreate("charging leds", CHARGING_LEDS_TIMER_PERIOD, pdTRUE, NULL, charging_state);
 
@@ -269,4 +272,12 @@ void hw_init()
     xTimerStart(connected_leds_timer, 10);
     xTimerStart(misaligned_leds_timer, 10);
     xTimerStart(charging_leds_timer, 10);
+
+    // safely switch off
+    err_code = write_STM_command(SWITCH_OFF);
+    if (err_code != ESP_OK)
+    {
+        ESP_LOGW(TAG, "Could not switch off STM32 board");
+        return;
+    }
 }

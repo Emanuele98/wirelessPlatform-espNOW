@@ -1280,7 +1280,7 @@ static void espnow_task(void *pvParameter)
                     if (MQTT_ACTIVE)
                     {
                         char value[100];
-                        sprintf(value, "PAD %d -- duty cycle: %.2f, tuning: %.2f, low_vds_thresh: %.2f, low_vds: %.2f", unitID, recv_data->field_1, recv_data->field_2, recv_data->field_3, recv_data->field_4);
+                        sprintf(value, "PAD %d -- duty cycle: %.3f, tuning: %.2f, low_vds_thresh: %.2f, low_vds: %.2f", unitID, recv_data->field_1, recv_data->field_2, recv_data->field_3, recv_data->field_4);
                         esp_mqtt_client_publish(client, debug, value, 0, MQTT_QoS, 0);
                     }
 
