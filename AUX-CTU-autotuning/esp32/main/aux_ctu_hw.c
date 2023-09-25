@@ -16,7 +16,6 @@ extern float OVERTEMPERATURE;
 extern bool  FOD_ACTIVE;
 
 static float last_duty_cycle = 0.30;
-static bool first_duty_cycle = true;
 
 static const char* TAG = "HARDWARE";
 
@@ -49,22 +48,16 @@ static void parse_received_UART(uint8_t *rx_uart)
         alert_payload.overtemperature = 1;
     else if ((alertType == HS) || (alertType == DC))
         alert_payload.FOD = 1;
-    else
-        alert_payload.internal = 0;
 
-    if (alert_payload.internal == 1)
+    if (alert_payload.internal)
     {
-        ESP_LOGW(TAG, "ALERT: %d", alertType);
+        ESP_LOGE(TAG, "ALERT: %d", alertType);
         send_alert_message();
     }
 
     // send details to the master every time the duty cycle changes
     tuning_params.duty_cycle = cJSON_GetObjectItem(root, "duty")->valuedouble;
-    if (first_duty_cycle)
-    {
-        last_duty_cycle = tuning_params.duty_cycle;
-        first_duty_cycle = false;
-    }
+ 
     //ESP_LOGI(TAG, "DUTY CYCLE: %.2f", tuning_params.duty_cycle);
     
     tuning_params.tuning = cJSON_GetObjectItem(root, "tuning")->valueint;
@@ -76,7 +69,7 @@ static void parse_received_UART(uint8_t *rx_uart)
     tuning_params.low_vds = cJSON_GetObjectItem(root, "low_vds")->valueint;
     //ESP_LOGW(TAG, "low_vds: %d", tuning_params.low_vds);
 
-    if (tuning_params.duty_cycle != last_duty_cycle)
+    if (fabs(tuning_params.duty_cycle - last_duty_cycle) > MIN_DUTY_CYCLE_CHANGE)
     {
         send_tuning_message();
         ESP_LOGI(TAG, "DUTY CYCLE: %.3f", tuning_params.duty_cycle);
@@ -274,7 +267,7 @@ void hw_init()
     xTimerStart(charging_leds_timer, 10);
 
     // safely switch off
-    err_code = write_STM_command(SWITCH_OFF);
+    err_code = write_STM_command(SWITCH_ON);
     if (err_code != ESP_OK)
     {
         ESP_LOGW(TAG, "Could not switch off STM32 board");

@@ -11,7 +11,6 @@ esp_now_peer_num_t peer_num = {0, 0};
 
 wpt_dynamic_payload_t dynamic_payload;
 wpt_alert_payload_t alert_payload;
-static bool alert_sent = false;
 
 TimerHandle_t dynamic_timer, alert_timer;
 message_type last_msg_type;
@@ -72,116 +71,114 @@ void send_accelerometer_wakeup(void)
 
 static void dynamic_timer_callback(TimerHandle_t xTimer)
 {
-    //send them to master //
-    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
-    if (buf == NULL) {
-        ESP_LOGE(TAG, "Malloc  buffer fail");
-        free(buf);
-        return;
-    }
-    
-    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+    if ((scooter_status != SCOOTER_ALERT) && (scooter_status != SCOOTER_FULLY_CHARGED))
     {
-        espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
-        esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
-    } else  
-        ESP_LOGE(TAG, "Could not take send semaphore");
+        //send them to master
+        espnow_data_t *buf = malloc(sizeof(espnow_data_t));
+        if (buf == NULL) {
+            ESP_LOGE(TAG, "Malloc  buffer fail");
+            free(buf);
+            return;
+        }
+        
+        if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+        {
+            espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
+            esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
+        } else  
+            ESP_LOGE(TAG, "Could not take send semaphore");
 
-    free(buf);
+        free(buf);
+    }
 }
 
 static void alert_timer_callback(TimerHandle_t xTimer)
 {
-    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
-    if (buf == NULL) {
-        ESP_LOGE(TAG, "Malloc  buffer fail");
-        free(buf);
-        return;
-    }
-
-    //make an average window about the last 10 measurements
-    voltage_window[alert_count] = dynamic_payload.voltage;
-    current_window[alert_count] = dynamic_payload.current;
-    temp1_window[alert_count] = dynamic_payload.temp1;
-    temp2_window[alert_count] = dynamic_payload.temp2;
-
-    // alert count keeps going between 0 and AVG_ALERT_WINDOW - 1
-    alert_count = (alert_count + 1) % AVG_ALERT_WINDOW;
-
-    //never send an alert for the first (AVG_ALERT_WINDOW - 1) checks
-    if (voltage_window[AVG_ALERT_WINDOW - 1] == 0)
-        return;
-
-    //calculate average values
-    float avg_voltage = 0, avg_current = 0, avg_temp1 = 0, avg_temp2 = 0;
-    for (int i = 0; i < AVG_ALERT_WINDOW; i++)
+    if ((scooter_status != SCOOTER_ALERT) && (scooter_status != SCOOTER_FULLY_CHARGED))
     {
-        avg_voltage += voltage_window[i];
-        avg_current += current_window[i];
-        avg_temp1 += temp1_window[i];
-        avg_temp2 += temp2_window[i];
-    }
-    avg_voltage /= AVG_ALERT_WINDOW;
-    avg_current /= AVG_ALERT_WINDOW;
-    avg_temp1 /= AVG_ALERT_WINDOW;
-    avg_temp2 /= AVG_ALERT_WINDOW;
+        
+        espnow_data_t *buf = malloc(sizeof(espnow_data_t));
+        if (buf == NULL) {
+            ESP_LOGE(TAG, "Malloc  buffer fail");
+            free(buf);
+            return;
+        }
 
+        //make an average window about the last 10 measurements
+        voltage_window[alert_count] = dynamic_payload.voltage;
+        current_window[alert_count] = dynamic_payload.current;
+        temp1_window[alert_count] = dynamic_payload.temp1;
+        temp2_window[alert_count] = dynamic_payload.temp2;
 
-    
-    //check if values are in range
-    if (avg_voltage > OVERVOLTAGE)
-        alert_payload.overvoltage = 1;
-    if (avg_current > OVERCURRENT)
-        alert_payload.overcurrent = 1;
-    if ((avg_temp1 > OVERTEMPERATURE || avg_temp2 > OVERTEMPERATURE))
-        alert_payload.overtemperature = 1;
+        // alert count keeps going between 0 and AVG_ALERT_WINDOW - 1
+        alert_count = (alert_count + 1) % AVG_ALERT_WINDOW;
 
-    //fully-charged alert
-    if (scooter_status == SCOOTER_CHARGING)
-    {
-        if ((dynamic_payload.voltage > FULLY_CHARGED_MIN_VOLTAGE) && (dynamic_payload.current < FULLY_CHARGED_MAX_CURRENT))
+        //never send an alert for the first (AVG_ALERT_WINDOW - 1) checks
+        if (voltage_window[AVG_ALERT_WINDOW - 1] == 0)
+            return;
+
+        //calculate average values
+        float avg_voltage = 0, avg_current = 0, avg_temp1 = 0, avg_temp2 = 0;
+        for (int i = 0; i < AVG_ALERT_WINDOW; i++)
         {
-            fully_charged++;
-            if (fully_charged > MAX_FULLY_CHARGED_ALERT_CHECKS)
+            avg_voltage += voltage_window[i];
+            avg_current += current_window[i];
+            avg_temp1 += temp1_window[i];
+            avg_temp2 += temp2_window[i];
+        }
+        avg_voltage /= AVG_ALERT_WINDOW;
+        avg_current /= AVG_ALERT_WINDOW;
+        avg_temp1 /= AVG_ALERT_WINDOW;
+        avg_temp2 /= AVG_ALERT_WINDOW;
+
+
+        
+        //check if values are in range
+        if (avg_voltage > OVERVOLTAGE)
+            alert_payload.overvoltage = 1;
+        if (avg_current > OVERCURRENT)
+            alert_payload.overcurrent = 1;
+        if ((avg_temp1 > OVERTEMPERATURE || avg_temp2 > OVERTEMPERATURE))
+            alert_payload.overtemperature = 1;
+
+        //fully-charged alert
+        if (scooter_status == SCOOTER_CHARGING)
+        {
+            if ((dynamic_payload.voltage > FULLY_CHARGED_MIN_VOLTAGE) && (dynamic_payload.current < FULLY_CHARGED_MAX_CURRENT))
             {
-                alert_payload.fully_charged = 1;
+                fully_charged++;
+                if (fully_charged > MAX_FULLY_CHARGED_ALERT_CHECKS)
+                {
+                    alert_payload.fully_charged = 1;
+                }
+            }
+            else
+            {
+                fully_charged = 0;
             }
         }
-        else
+
+
+        //* IF ANY, SEND ALERT TO THE MASTER
+        if (alert_payload.internal)
         {
-            fully_charged = 0;
+            ESP_LOGE(TAG, "ALERT");
+            if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+            {
+                espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
+                esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
+            } else
+                ESP_LOGE(TAG, "Could not take send semaphore");  
+
+            vTaskDelay(pdMS_TO_TICKS(ACCELEROMETER_ACTIVE_TIME));
+            if (alert_payload.fully_charged)
+                scooter_status = SCOOTER_FULLY_CHARGED;
+            else
+                scooter_status = SCOOTER_ALERT;
         }
-    }
-
-
-    //* IF ANY, SEND ALERT TO THE MASTER
-    //alert_sent needed because this fast timer might have 1-2 cycles left before being actually stopped
-    if ((alert_payload.internal) && (!alert_sent))
-    {
-        alert_sent = true;
-        ESP_LOGE(TAG, "ALERT");
-        if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
-        {
-            espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
-            esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
-        } else
-            ESP_LOGE(TAG, "Could not take send semaphore");  
-
-        vTaskDelay(pdMS_TO_TICKS(ACCELEROMETER_ACTIVE_TIME));
-        if (alert_payload.fully_charged)
-            scooter_status = SCOOTER_FULLY_CHARGED;
-        else
-            scooter_status = SCOOTER_ALERT;
-
-        //STOP TIMERS
-        xTimerStop(dynamic_timer, 10);
-        xTimerStop(alert_timer, 10);
-        //DELETE TIMERS
-        //xTimerDelete(dynamic_timer, 0);
-        //xTimerDelete(alert_timer, 0);
-    }
 
     free(buf);
+    }
 }
 
 static void esp_now_register_master(uint8_t *mac_addr, bool encrypt)
@@ -229,6 +226,12 @@ static void ESPNOW_SEND_CB(const uint8_t *mac_addr, esp_now_send_status_t status
     //give back the semaphore if status is successfull
     if (status == ESP_NOW_SEND_SUCCESS)
         xSemaphoreGive(send_semaphore);
+    else
+        break;
+
+    // make sure the alert went through
+    if (last_msg_type == ESPNOW_DATA_ALERT)
+        alert_payload.internal = 0;
 }
 
 static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
@@ -402,9 +405,6 @@ static void espnow_task(void *pvParameter)
                         {
                             ESP_LOGE(TAG, "TOO MANY COMMS ERRORS, DISCONNECTING");
                             scooter_status = SCOOTER_DISCONNECTED;
-                            esp_now_del_peer(master_mac);
-                            xTimerStop(dynamic_timer, 10);
-                            xTimerStop(alert_timer, 10);
 
                             //reboot
                             esp_restart();
@@ -512,9 +512,6 @@ static void espnow_task(void *pvParameter)
                     }
                     else
                     {
-                        xTimerStop(dynamic_timer, 10);
-                        xTimerStop(alert_timer, 10);
-
                         // received after the relative pad is on ALERT
                         // put the scooter on alert to unlock the accelerometer data
                         vTaskDelay(pdMS_TO_TICKS(ACCELEROMETER_ACTIVE_TIME));
@@ -528,8 +525,7 @@ static void espnow_task(void *pvParameter)
                     if ((recv_data->field_2 == ALERT_MESSAGE) && (recv_data->field_3 == ALERT_MESSAGE) && (recv_data->field_4 == ALERT_MESSAGE))
                     {
                         ESP_LOGE(TAG, "REBOOTING in %.1f seconds", recv_data->field_1);
-                        xTimerStop(dynamic_timer, 10);
-                        xTimerStop(alert_timer, 10);
+                        scooter_status = SCOOTER_ALERT;
 
                         // waiting time before rebooting
                         vTaskDelay(pdMS_TO_TICKS(recv_data->field_1*1000));

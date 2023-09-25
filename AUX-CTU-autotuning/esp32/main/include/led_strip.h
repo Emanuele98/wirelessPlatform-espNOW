@@ -16,7 +16,7 @@
 
 // LED STRIP
 #define N_LEDS                  25
-#define STRIP_PIN               13
+#define STRIP_PIN               15
 
 /* Default Leds connected blinking duration */
 #define CONNECTED_LEDS_TIMER_PERIOD pdMS_TO_TICKS(40)

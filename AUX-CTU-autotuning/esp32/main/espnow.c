@@ -24,7 +24,6 @@ bool strip_charging;
 wpt_dynamic_payload_t dynamic_payload;
 wpt_alert_payload_t alert_payload;
 wpt_tuning_params_t tuning_params;
-static bool alert_sent = false;
 
 static uint8_t comms_fail = 0;
 
@@ -59,77 +58,72 @@ void wifi_init(void)
 static void dynamic_timer_callback(void)
 {
     // send them to master //
-    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
-    if (buf == NULL)
+    espnow_data_t *dyn_buf = malloc(sizeof(espnow_data_t));
+    if (dyn_buf == NULL)
     {
         ESP_LOGE(TAG, "Malloc  buffer fail");
-        free(buf);
+        free(dyn_buf);
         return;
     }
-    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+    if ((pad_status != PAD_DISCONNECTED) && (pad_status != PAD_ALERT))
     {
-        espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
-        esp_now_send(master_mac, (uint8_t *)buf, sizeof(espnow_data_t));
-    }
-    else
-        ESP_LOGE(TAG, "Could not take send semaphore");
-
-    free(buf);
-}
-
-void send_tuning_message(void)
-{
-    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
-    if (buf == NULL)
-    {
-        ESP_LOGE(TAG, "Malloc  buffer fail");
-        free(buf);
-        return;
-    }
-
-    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
-    {
-        espnow_data_prepare(buf, ESPNOW_DATA_CONTROL);
-        esp_now_send(master_mac, (uint8_t *)buf, sizeof(espnow_data_t));
-        //ESP_LOGI(TAG, "Send tuning data");
-    }
-    else
-        ESP_LOGE(TAG, "Could not take send semaphore");
-
-}
-
-void send_alert_message(void)
-{
-    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
-    if (buf == NULL)
-    {
-        ESP_LOGE(TAG, "Malloc  buffer fail");
-        free(buf);
-        return;
-    }
-
-    // IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
-    if ((alert_payload.internal) && (!alert_sent))
-    {
-        //todo: test how to handle FOD from STM32
-        ESP_LOGE(TAG, "ALERTS ACTIVE");
-        alert_sent = true;
-        pad_status = PAD_ALERT;
-        // locally switch off
-        if(!write_STM_command(SWITCH_OFF))
-            ESP_LOGE(TAG, "UART SENT SWITCH OFF");
-        // STOP TIMERS
-        xTimerStop(dynamic_timer, 0);
         if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
         {
-            espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
-            esp_now_send(master_mac, (uint8_t *)buf, sizeof(espnow_data_t));
+            espnow_data_prepare(dyn_buf, ESPNOW_DATA_DYNAMIC);
+            esp_now_send(master_mac, (uint8_t *)dyn_buf, sizeof(espnow_data_t));
         }
         else
             ESP_LOGE(TAG, "Could not take send semaphore");
     }
 
-    free(buf);
+    free(dyn_buf);
+}
+
+void send_tuning_message(void)
+{
+    espnow_data_t *tun_buf = malloc(sizeof(espnow_data_t));
+    if (tun_buf == NULL)
+    {
+        ESP_LOGE(TAG, "Malloc  buffer fail");
+        free(tun_buf);
+        return;
+    }
+
+    espnow_data_prepare(tun_buf, ESPNOW_DATA_CONTROL);
+    esp_now_send(master_mac, (uint8_t *)tun_buf, sizeof(espnow_data_t));
+    ESP_LOGI(TAG, "Send tuning data");
+    
+    free(tun_buf);
+}
+
+void send_alert_message(void)
+{
+    espnow_data_t *alert_buf = malloc(sizeof(espnow_data_t));
+    if (alert_buf == NULL)
+    {
+        ESP_LOGE(TAG, "Malloc  buffer fail");
+        free(alert_buf);
+        return;
+    }
+
+    // IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
+    if (alert_payload.internal)
+    {
+        //todo: test how to handle FOD from STM32
+        ESP_LOGE(TAG, "ALERTS ACTIVE");
+        pad_status = PAD_ALERT;
+
+        // locally switch off
+        if(!write_STM_command(SWITCH_OFF))
+            ESP_LOGE(TAG, "UART SENT SWITCH OFF");
+
+        // no semaphore bc the command is sent from another task
+        // binary semaphore used only for 1 task and interrupt sync
+        espnow_data_prepare(alert_buf, ESPNOW_DATA_ALERT);
+        esp_now_send(master_mac, (uint8_t *)alert_buf, sizeof(espnow_data_t));
+    }
+
+    free(alert_buf);
 }
 
 static void esp_now_register_master(uint8_t *mac_addr, bool encrypt)
@@ -181,6 +175,12 @@ static void ESPNOW_SEND_CB(const uint8_t *mac_addr, esp_now_send_status_t status
     // give back the semaphore if status is successfull
     if (status == ESP_NOW_SEND_SUCCESS)
         xSemaphoreGive(send_semaphore);
+    else
+        break;
+
+    // make sure the alert went through
+    if (last_msg_type == ESPNOW_DATA_ALERT)
+        alert_payload.internal = 0;
 }
 
 static void ESPNOW_RECV_CB(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
@@ -348,7 +348,6 @@ static void espnow_task(void *pvParameter)
                         if (!write_STM_command(SWITCH_OFF))
                             ESP_LOGE(TAG, "UART SENT SWITCH OFF");
                         esp_now_del_peer(master_mac);
-                        xTimerStop(dynamic_timer, 10);
 
                         // reboot
                         esp_restart();
@@ -473,6 +472,7 @@ static void espnow_task(void *pvParameter)
                         }
                         else if (recv_data->field_4 == LED_FULLY_CHARGED) // scooter is fully charged and still placed on it
                         {
+                            pad_status = PAD_FULLY_CHARGED;
                             strip_misalignment = false;
                             strip_charging = false;
                             strip_enable = false;
@@ -497,7 +497,8 @@ static void espnow_task(void *pvParameter)
                     ESP_LOGE(TAG, "REBOOTING");
                     if (!write_STM_command(SWITCH_OFF))
                             ESP_LOGE(TAG, "UART SENT SWITCH OFF");
-                    xTimerStop(dynamic_timer, 10);
+                    
+                    pad_status = PAD_DISCONNECTED;
 
                     // wait time before reeboting
                     vTaskDelay(pdMS_TO_TICKS(recv_data->field_1*1000));
@@ -565,6 +566,7 @@ esp_err_t espnow_init(void)
         return ESP_FAIL;
     }
 
+    //create mutex semaphore
     send_semaphore = xSemaphoreCreateBinary();
     if (send_semaphore == NULL)
     {

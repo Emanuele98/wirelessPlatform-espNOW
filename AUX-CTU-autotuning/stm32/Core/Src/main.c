@@ -64,7 +64,7 @@ typedef struct {
 
 static double TEMP_LIMIT = 40;
 static double CURRENT_LIMIT = 2.2;
-static double VOLT_LIMIT = 70;
+static double VOLT_LIMIT = 75;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/

@@ -23,7 +23,9 @@
 
 #define EX_UART_NUM                     UART_NUM_0
 #define UART_TASK_STACK_SIZE            1024*10
-#define UART_TASK_PRIORITY              5
+#define UART_TASK_PRIORITY              6
+
+#define MIN_DUTY_CYCLE_CHANGE           0.005
 
 typedef enum 
 {
