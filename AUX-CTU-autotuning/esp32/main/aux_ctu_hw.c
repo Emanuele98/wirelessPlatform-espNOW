@@ -9,13 +9,13 @@ extern wpt_dynamic_payload_t dynamic_payload;
 extern wpt_alert_payload_t alert_payload;
 extern wpt_tuning_params_t tuning_params;
 
+static float last_duty_cycle = 0.30;
+
 // ALERTS LIMITS
 extern float OVERCURRENT;
 extern float OVERVOLTAGE;
 extern float OVERTEMPERATURE;
 extern bool  FOD_ACTIVE;
-
-static float last_duty_cycle = 0.30;
 
 static const char* TAG = "HARDWARE";
 
@@ -57,7 +57,6 @@ static void parse_received_UART(uint8_t *rx_uart)
 
     // send details to the master every time the duty cycle changes
     tuning_params.duty_cycle = cJSON_GetObjectItem(root, "duty")->valuedouble;
- 
     //ESP_LOGI(TAG, "DUTY CYCLE: %.2f", tuning_params.duty_cycle);
     
     tuning_params.tuning = cJSON_GetObjectItem(root, "tuning")->valueint;
@@ -72,7 +71,6 @@ static void parse_received_UART(uint8_t *rx_uart)
     if (fabs(tuning_params.duty_cycle - last_duty_cycle) > MIN_DUTY_CYCLE_CHANGE)
     {
         send_tuning_message();
-        ESP_LOGI(TAG, "DUTY CYCLE: %.3f", tuning_params.duty_cycle);
         last_duty_cycle = tuning_params.duty_cycle;
     }
 
@@ -205,6 +203,8 @@ esp_err_t write_STM_command(stm32_command_t command)
     cJSON *root = cJSON_CreateObject();
     if (command == SWITCH_ON)
         cJSON_AddStringToObject(root, "mode", "deploy");
+    else if (command == SWITCH_LOC)
+        cJSON_AddStringToObject(root, "mode", "localization");
     else if (command == SWITCH_OFF)
         cJSON_AddStringToObject(root, "mode", "off");
 
@@ -241,12 +241,6 @@ void hw_init()
 {
     esp_err_t err_code;
 
-    //*UART CONNECTION TO STM32
-    // the STM32 board sends sensor measurements to the ESP32 via UART, along with FOD alerts and other information
-	uart_init();
-	xTaskCreate(uart_event_task, "uart_event_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
-    xTaskCreate(rx_task, "uart_rx_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
-
     //*LED STRIP
     install_strip(STRIP_PIN);
     ESP_LOGI(TAG, "LED strip initialized successfully");
@@ -265,9 +259,15 @@ void hw_init()
     xTimerStart(connected_leds_timer, 10);
     xTimerStart(misaligned_leds_timer, 10);
     xTimerStart(charging_leds_timer, 10);
+    
+    //*UART CONNECTION TO STM32
+    // the STM32 board sends sensor measurements to the ESP32 via UART, along with FOD alerts and other information
+	uart_init();
+	xTaskCreate(uart_event_task, "uart_event_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
+    xTaskCreate(rx_task, "uart_rx_task", UART_TASK_STACK_SIZE, NULL, UART_TASK_PRIORITY, NULL);
 
     // safely switch off
-    err_code = write_STM_command(SWITCH_ON);
+    err_code = write_STM_command(SWITCH_OFF);
     if (err_code != ESP_OK)
     {
         ESP_LOGW(TAG, "Could not switch off STM32 board");

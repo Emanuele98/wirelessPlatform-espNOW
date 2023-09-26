@@ -62,9 +62,12 @@ typedef struct {
 
 #define BUFFER_SIZE 1024
 
-static double TEMP_LIMIT = 40;
-static double CURRENT_LIMIT = 2.2;
-static double VOLT_LIMIT = 70;
+#define STARTING_DUTY				0.3
+#define MAX_DUTY_CALIBRATION		0.4
+#define MIN_DUTY_CALIBRATION		0.2
+#define DEPLOY_DUTY_TRESHOLD		0.015
+#define DUTY_CYCLE_SINGLE_CHANGE	0.002
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -95,6 +98,10 @@ static volatile uint16_t rxIndex = 0;
 static volatile uint8_t jsonFlag = 0;
 static volatile bool UART_READY = true;
 static volatile bool SEND_TIMER_FLAG = false;
+
+static double TEMP_LIMIT = 40;
+static double CURRENT_LIMIT = 2.2;
+static double VOLT_LIMIT = 75;
 
 alert_t gAlertType = NONE;
 
@@ -186,13 +193,12 @@ int main(void)
 	HAL_I2C_Mem_Write(&hi2c1, (uint16_t) I2C_ADD_PWR << 1U,
 			(uint16_t) aTxRegPtr[0], 1, (uint8_t*) aTxData, 2, HAL_MAX_DELAY);
 
-	double initial_duty = 0.30;
-	double current_duty = initial_duty;
+	double current_duty = STARTING_DUTY;
 	double cal_duty = current_duty;
-	double max_duty = 0.40;
-	double min_duty = 0.20;
+	double max_duty = MAX_DUTY_CALIBRATION;
+	double min_duty = MIN_DUTY_CALIBRATION;
 	uint16_t signal_period = 604;
-	uint16_t compare1_val = initial_duty * signal_period;
+	uint16_t compare1_val = STARTING_DUTY * signal_period;
 	uint16_t compare3_val = compare1_val + signal_period / 2;
 
 	HAL_HRTIM_WaveformCountStart(&hhrtim1,
@@ -250,16 +256,6 @@ int main(void)
 		/* Find hard-switching value */
 		tuning = adc_buf2[zero_cross];
 
-		/* Set duty cycle limits based on current limits */
-		if (currentState != STATE_CALIBRATING)
-		{
-			min_duty = cal_duty - 0.015;
-			max_duty = cal_duty + 0.015;
-		} else {
-			min_duty = 0.2;
-			max_duty = 0.4;
-		}
-
 		// I2C readings
 		uint8_t aRxBuffer[2];
 
@@ -303,9 +299,11 @@ int main(void)
 		if (adc_max > vds_checking_threshold)
 		{
 			if (tuning > tuning_threshold) {
-				current_duty = current_duty - 0.002;
+				current_duty = current_duty - DUTY_CYCLE_SINGLE_CHANGE;
 				low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
-				if (current_duty > min_duty) {
+				if (((current_duty > min_duty) && (currentState == STATE_DEPLOY)) ||
+						((current_duty > MIN_DUTY_CALIBRATION) && (currentState == STATE_CALIBRATING)))
+				{
 					compare1_val = current_duty * signal_period;
 					compare3_val = compare1_val + signal_period / 2;
 					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
@@ -316,10 +314,13 @@ int main(void)
 				} else {
 					gAlertType = HS;
 				}
-			} else if (low_vds_count > low_vds_count_threshold) {
-				current_duty = current_duty + 0.002;
+			} else if (low_vds_count > low_vds_count_threshold)
+			{
+				current_duty = current_duty + DUTY_CYCLE_SINGLE_CHANGE;
 				low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
-				if (current_duty < max_duty) {
+				if (((current_duty < max_duty) && (currentState == STATE_DEPLOY)) ||
+						((current_duty < MAX_DUTY_CALIBRATION) && (currentState == STATE_CALIBRATING)))
+				{
 					compare1_val = current_duty * signal_period;
 					compare3_val = compare1_val + signal_period / 2;
 					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
@@ -331,11 +332,18 @@ int main(void)
 					gAlertType = DI;
 				}
 			} else if ((currentState == STATE_CALIBRATING) && (voltage > 66.5)) {
-
 				if (cal_duty != current_duty)
 					cal_duty = current_duty;
 				 else
+				 {
 					handleEvent(EVENT_CALIBRATE_DONE);
+					min_duty = current_duty - DEPLOY_DUTY_TRESHOLD;
+					max_duty = current_duty + DEPLOY_DUTY_TRESHOLD;
+				 }
+			} else if (currentState == STATE_DEPLOY) //no duty cycle changes
+			{
+				min_duty = current_duty - DEPLOY_DUTY_TRESHOLD;
+				max_duty = current_duty + DEPLOY_DUTY_TRESHOLD;
 			}
 		}
 
@@ -352,7 +360,7 @@ int main(void)
 		{
 			handleEvent(EVENT_ALERT);
 			// reset waveform
-			current_duty = initial_duty;
+			current_duty = STARTING_DUTY;
 			compare1_val = current_duty * signal_period;
 			compare3_val = compare1_val + signal_period / 2;
 			low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;

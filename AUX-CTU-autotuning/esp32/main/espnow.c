@@ -7,11 +7,11 @@ static QueueHandle_t espnow_queue;
 static uint8_t master_mac[ESP_NOW_ETH_ALEN] = {0};
 
 static uint8_t broadcast_mac[ESP_NOW_ETH_ALEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-esp_now_peer_num_t peer_num = {0, 0};
+static esp_now_peer_num_t peer_num = {0, 0};
 
 message_type last_msg_type;
 pad_status_t pad_status = PAD_DISCONNECTED;
-TimerHandle_t dynamic_timer;
+static TimerHandle_t dynamic_timer;
 
 /* virtual switch for default led mode */
 bool strip_enable;
@@ -32,9 +32,6 @@ float OVERCURRENT;
 float OVERVOLTAGE;
 float OVERTEMPERATURE;
 bool FOD_ACTIVE;
-
-static uint8_t alert_count = 0;
-float voltage_window[AVG_ALERT_WINDOW], current_window[AVG_ALERT_WINDOW], temp1_window[AVG_ALERT_WINDOW], temp2_window[AVG_ALERT_WINDOW];
 
 static void espnow_data_prepare(espnow_data_t *buf, message_type type);
 
@@ -70,7 +67,8 @@ static void dynamic_timer_callback(void)
         if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
         {
             espnow_data_prepare(dyn_buf, ESPNOW_DATA_DYNAMIC);
-            esp_now_send(master_mac, (uint8_t *)dyn_buf, sizeof(espnow_data_t));
+            if (esp_now_send(master_mac, (uint8_t *)dyn_buf, sizeof(espnow_data_t)) != ESP_OK)
+                xSemaphoreGive(send_semaphore);
         }
         else
             ESP_LOGE(TAG, "Could not take send semaphore");
@@ -78,6 +76,7 @@ static void dynamic_timer_callback(void)
 
     free(dyn_buf);
 }
+
 
 void send_tuning_message(void)
 {
@@ -89,9 +88,14 @@ void send_tuning_message(void)
         return;
     }
 
-    espnow_data_prepare(tun_buf, ESPNOW_DATA_CONTROL);
-    esp_now_send(master_mac, (uint8_t *)tun_buf, sizeof(espnow_data_t));
-    ESP_LOGI(TAG, "Send tuning data");
+    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+    {
+        espnow_data_prepare(tun_buf, ESPNOW_DATA_CONTROL);
+        if (esp_now_send(master_mac, (uint8_t *)tun_buf, sizeof(espnow_data_t)) != ESP_OK)
+            xSemaphoreGive(send_semaphore);
+    }
+    else
+        ESP_LOGE(TAG, "Could not take send semaphore");
     
     free(tun_buf);
 }
@@ -109,7 +113,6 @@ void send_alert_message(void)
     // IF ANY ALERT IS ACTIVE, SEND ALERTS TO MASTER
     if (alert_payload.internal)
     {
-        //todo: test how to handle FOD from STM32
         ESP_LOGE(TAG, "ALERTS ACTIVE");
         pad_status = PAD_ALERT;
 
@@ -117,14 +120,19 @@ void send_alert_message(void)
         if(!write_STM_command(SWITCH_OFF))
             ESP_LOGE(TAG, "UART SENT SWITCH OFF");
 
-        // no semaphore bc the command is sent from another task
-        // binary semaphore used only for 1 task and interrupt sync
-        espnow_data_prepare(alert_buf, ESPNOW_DATA_ALERT);
-        esp_now_send(master_mac, (uint8_t *)alert_buf, sizeof(espnow_data_t));
+        if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+        {
+            espnow_data_prepare(alert_buf, ESPNOW_DATA_ALERT);
+            if (esp_now_send(master_mac, (uint8_t *)alert_buf, sizeof(espnow_data_t)) != ESP_OK)
+                xSemaphoreGive(send_semaphore);
+        }
+        else
+            ESP_LOGE(TAG, "Could not take send semaphore");
     }
 
     free(alert_buf);
 }
+
 
 static void esp_now_register_master(uint8_t *mac_addr, bool encrypt)
 {
@@ -172,13 +180,12 @@ static void ESPNOW_SEND_CB(const uint8_t *mac_addr, esp_now_send_status_t status
         ESP_LOGW(TAG, "Send send queue fail");
     }
 
-    // give back the semaphore if status is successfull
-    if (status == ESP_NOW_SEND_SUCCESS)
-        xSemaphoreGive(send_semaphore);
-    else
-        break;
+    if (status != ESP_NOW_SEND_SUCCESS)
+        return;
 
-    // make sure the alert went through
+    // give back the semaphore if status is successfull
+    xSemaphoreGive(send_semaphore);
+    // make sure the alert went through before resetting it
     if (last_msg_type == ESPNOW_DATA_ALERT)
         alert_payload.internal = 0;
 }
@@ -429,7 +436,7 @@ static void espnow_task(void *pvParameter)
                 }
                 else
                 {
-                    ESP_LOGI(TAG, "Master " MACSTR " already in peer list", MAC2STR(master_mac));
+                    //ESP_LOGI(TAG, "Master " MACSTR " already in peer list", MAC2STR(master_mac));
                     // TODO: handle the dynamic change of dynamic timer from field_3 - check if it is different from dyn_timegap
 
                     // handle strip and switches
@@ -455,7 +462,7 @@ static void espnow_task(void *pvParameter)
                     else if (recv_data->field_2)
                     {
                         //!todo: reactivate low power!
-                        if (!write_STM_command(SWITCH_ON))
+                        if (!write_STM_command(SWITCH_LOC))
                             ESP_LOGE(TAG, "UART SENT SWITCH ON");
                         pad_status = PAD_LOW_POWER;
                     }
@@ -566,7 +573,7 @@ esp_err_t espnow_init(void)
         return ESP_FAIL;
     }
 
-    //create mutex semaphore
+    //create binary semaphore
     send_semaphore = xSemaphoreCreateBinary();
     if (send_semaphore == NULL)
     {
@@ -585,8 +592,6 @@ esp_err_t espnow_init(void)
     }
     else
         ESP_LOGE(TAG, "Could not take send semaphore");
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
 
     return ESP_OK;
 }

@@ -1,0 +1,47 @@
+!SESSION 2023-09-26 14:40:26.254 -----------------------------------------------
+eclipse.buildId=Version 1.13.1
+java.version=17.0.6
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_GB
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2023-09-26 14:41:12.346
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2023-09-26 14:41:12.369
+!MESSAGE Log4j2 initialized with config file C:\Users\EmanueleDegani\OneDrive - Bumblebee Power\Desktop\esp-NOW\AUX-CTU-autotuning\stm32\.metadata\.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2023-09-26 14:41:17.630
+!MESSAGE Started RMI Server, listening on port 41338
+!SESSION 2023-09-26 14:43:39.267 -----------------------------------------------
+eclipse.buildId=Version 1.13.1
+java.version=17.0.6
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_GB
+Framework arguments:  C:\Users\EmanueleDegani\OneDrive - Bumblebee Power\Desktop\esp-NOW\AUX-CTU-autotuning\stm32\.cproject
+Command-line arguments:  -os win32 -ws win32 -arch x86_64 C:\Users\EmanueleDegani\OneDrive - Bumblebee Power\Desktop\esp-NOW\AUX-CTU-autotuning\stm32\.cproject
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2023-09-26 14:43:44.133
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2023-09-26 14:43:44.133
+!MESSAGE Log4j2 initialized with config file C:\Users\EmanueleDegani\OneDrive - Bumblebee Power\Desktop\esp-NOW\AUX-CTU-autotuning\stm32\.metadata\.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2023-09-26 14:43:47.493
+!MESSAGE Started RMI Server, listening on port 41337
+!SESSION 2023-09-26 14:44:49.564 -----------------------------------------------
+eclipse.buildId=Version 1.13.1
+java.version=17.0.6
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_GB
+Framework arguments:  C:\Users\EmanueleDegani\OneDrive - Bumblebee Power\Desktop\esp-NOW\AUX-CTU-autotuning\stm32\.cproject
+Command-line arguments:  -os win32 -ws win32 -arch x86_64 C:\Users\EmanueleDegani\OneDrive - Bumblebee Power\Desktop\esp-NOW\AUX-CTU-autotuning\stm32\.cproject
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2023-09-26 14:44:54.313
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2023-09-26 14:44:54.315
+!MESSAGE Log4j2 initialized with config file C:\Users\EmanueleDegani\OneDrive - Bumblebee Power\Desktop\esp-NOW\AUX-CTU-autotuning\stm32\.metadata\.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2023-09-26 14:44:57.637
+!MESSAGE Started RMI Server, listening on port 41337

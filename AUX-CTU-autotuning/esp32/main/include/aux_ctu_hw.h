@@ -14,8 +14,6 @@
 #include "cJSON.h"
 #include "driver/uart.h"
 
-#define AVG_ALERT_WINDOW                10
-
 #define UART_BUFFER_SIZE                1024
 
 #define TXD_PIN                         (GPIO_NUM_4)
@@ -29,8 +27,9 @@
 
 typedef enum 
 {
-    SWITCH_ON,
     SWITCH_OFF,
+    SWITCH_LOC,
+    SWITCH_ON,
 } stm32_command_t;
 
 typedef enum 

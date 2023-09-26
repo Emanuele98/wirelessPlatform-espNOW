@@ -30,13 +30,14 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-	STATE_IDLE, STATE_CALIBRATING, STATE_DEPLOY
+	STATE_IDLE, STATE_CALIBRATING, STATE_LOCALIZATION, STATE_DEPLOY
 } state_t;
 
 typedef enum {
-	EVENT_OFF_BUTTON,
+	EVENT_OFF_MSG,
 	EVENT_CALIBRATE_DONE,
-	EVENT_DEPLOY_BUTTON,
+	EVENT_LOCALIZATION_MSG,
+	EVENT_DEPLOY_MSG,
 	EVENT_ALERT,
 } event_t;
 
@@ -62,9 +63,12 @@ typedef struct {
 
 #define BUFFER_SIZE 1024
 
-static double TEMP_LIMIT = 40;
-static double CURRENT_LIMIT = 2.2;
-static double VOLT_LIMIT = 75;
+#define STARTING_DUTY				0.3
+#define MAX_DUTY_CALIBRATION		0.4
+#define MIN_DUTY_CALIBRATION		0.2
+#define DEPLOY_DUTY_TRESHOLD		0.015
+#define DUTY_CYCLE_SINGLE_CHANGE	0.002
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -96,7 +100,11 @@ static volatile uint8_t jsonFlag = 0;
 static volatile bool UART_READY = true;
 static volatile bool SEND_TIMER_FLAG = false;
 
-alert_t gAlertType = NONE;
+static double TEMP_LIMIT = 40;
+static double CURRENT_LIMIT = 2.2;
+static double VOLT_LIMIT = 75;
+
+static alert_t gAlertType = NONE;
 
 /* USER CODE END PV */
 
@@ -122,17 +130,21 @@ void parse_json(const char *json);
 /* USER CODE BEGIN 0 */
 // @formatter:off
 transition_t transitionTable[] = {
-		{ STATE_IDLE, 			EVENT_DEPLOY_BUTTON,    STATE_CALIBRATING, 	actionCalibrate },
+		{ STATE_IDLE, 			EVENT_LOCALIZATION_MSG,    	STATE_CALIBRATING, 	actionTurnOn				 	},
 
-		{ STATE_CALIBRATING, 	EVENT_CALIBRATE_DONE, 	STATE_DEPLOY, 	    actionTurnOn },
+		{ STATE_CALIBRATING, 	EVENT_CALIBRATE_DONE, 		STATE_LOCALIZATION, NULL					 	},
 
-		{ STATE_DEPLOY, 		EVENT_ALERT, 			STATE_IDLE,      	actionTurnOff },
-		{ STATE_DEPLOY, 		EVENT_OFF_BUTTON, 		STATE_IDLE,     	actionTurnOff },
-		{ STATE_CALIBRATING, 	EVENT_ALERT, 			STATE_IDLE, 		actionTurnOff },
-		{ STATE_CALIBRATING, 	EVENT_OFF_BUTTON, 		STATE_IDLE, 		actionTurnOff },
-		{ STATE_IDLE,			EVENT_OFF_BUTTON,		STATE_IDLE,			actionTurnOff},
-		{ STATE_IDLE,			EVENT_ALERT,			STATE_IDLE,			actionTurnOff},
+		{ STATE_LOCALIZATION, 	EVENT_DEPLOY_MSG,	STATE_DEPLOY, 		NULL 						},
 
+		{ STATE_DEPLOY, 		EVENT_ALERT, 				STATE_IDLE,      	actionTurnOff 				},
+		{ STATE_DEPLOY, 		EVENT_OFF_MSG, 			STATE_IDLE,     	actionTurnOff 				},
+		{ STATE_CALIBRATING, 	EVENT_ALERT, 				STATE_IDLE, 		actionTurnOff 				},
+		{ STATE_CALIBRATING, 	EVENT_OFF_MSG, 			STATE_IDLE, 		actionTurnOff 				},
+		{ STATE_IDLE,			EVENT_OFF_MSG,			STATE_IDLE,			actionTurnOff				},
+		{ STATE_IDLE,			EVENT_ALERT,				STATE_IDLE,			actionTurnOff				},
+		{ STATE_IDLE,			EVENT_ALERT,				STATE_IDLE,			actionTurnOff				},
+		{ STATE_LOCALIZATION,	EVENT_ALERT,				STATE_IDLE,			actionTurnOff				},
+		{ STATE_LOCALIZATION,	EVENT_OFF_MSG,			STATE_IDLE,			actionTurnOff				},
 };
 //@formatter:on
 /* USER CODE END 0 */
@@ -186,13 +198,12 @@ int main(void)
 	HAL_I2C_Mem_Write(&hi2c1, (uint16_t) I2C_ADD_PWR << 1U,
 			(uint16_t) aTxRegPtr[0], 1, (uint8_t*) aTxData, 2, HAL_MAX_DELAY);
 
-	double initial_duty = 0.30;
-	double current_duty = initial_duty;
+	double current_duty = STARTING_DUTY;
 	double cal_duty = current_duty;
-	double max_duty = 0.40;
-	double min_duty = 0.20;
+	double max_duty = MAX_DUTY_CALIBRATION;
+	double min_duty = MIN_DUTY_CALIBRATION;
 	uint16_t signal_period = 604;
-	uint16_t compare1_val = initial_duty * signal_period;
+	uint16_t compare1_val = STARTING_DUTY * signal_period;
 	uint16_t compare3_val = compare1_val + signal_period / 2;
 
 	HAL_HRTIM_WaveformCountStart(&hhrtim1,
@@ -250,14 +261,11 @@ int main(void)
 		/* Find hard-switching value */
 		tuning = adc_buf2[zero_cross];
 
-		/* Set duty cycle limits based on current limits */
-		if (currentState != STATE_CALIBRATING)
+		if ((currentState == STATE_CALIBRATING) || (currentState == STATE_LOCALIZATION))
 		{
-			min_duty = cal_duty - 0.015;
-			max_duty = cal_duty + 0.015;
-		} else {
-			min_duty = 0.2;
-			max_duty = 0.4;
+			//set duty limits
+			max_duty = MAX_DUTY_CALIBRATION;
+			min_duty = MIN_DUTY_CALIBRATION;
 		}
 
 		// I2C readings
@@ -303,9 +311,10 @@ int main(void)
 		if (adc_max > vds_checking_threshold)
 		{
 			if (tuning > tuning_threshold) {
-				current_duty = current_duty - 0.002;
+				current_duty = current_duty - DUTY_CYCLE_SINGLE_CHANGE;
 				low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
-				if (current_duty > min_duty) {
+				if (current_duty > min_duty)
+				{
 					compare1_val = current_duty * signal_period;
 					compare3_val = compare1_val + signal_period / 2;
 					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
@@ -316,10 +325,12 @@ int main(void)
 				} else {
 					gAlertType = HS;
 				}
-			} else if (low_vds_count > low_vds_count_threshold) {
-				current_duty = current_duty + 0.002;
+			} else if (low_vds_count > low_vds_count_threshold)
+			{
+				current_duty = current_duty + DUTY_CYCLE_SINGLE_CHANGE;
 				low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
-				if (current_duty < max_duty) {
+				if (current_duty < max_duty)
+				{
 					compare1_val = current_duty * signal_period;
 					compare3_val = compare1_val + signal_period / 2;
 					__HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A,
@@ -331,11 +342,16 @@ int main(void)
 					gAlertType = DI;
 				}
 			} else if ((currentState == STATE_CALIBRATING) && (voltage > 66.5)) {
-
 				if (cal_duty != current_duty)
 					cal_duty = current_duty;
 				 else
+				 {
 					handleEvent(EVENT_CALIBRATE_DONE);
+				 }
+			} else if (currentState == STATE_DEPLOY) //no duty cycle changes
+			{
+				min_duty = current_duty - DEPLOY_DUTY_TRESHOLD;
+				max_duty = current_duty + DEPLOY_DUTY_TRESHOLD;
 			}
 		}
 
@@ -352,7 +368,7 @@ int main(void)
 		{
 			handleEvent(EVENT_ALERT);
 			// reset waveform
-			current_duty = initial_duty;
+			current_duty = STARTING_DUTY;
 			compare1_val = current_duty * signal_period;
 			compare3_val = compare1_val + signal_period / 2;
 			low_vds_count_threshold = current_duty * ADC_BUF_LEN - 1;
@@ -805,7 +821,7 @@ void handleEvent(event_t event) {
 				&& transitionTable[i].event == event) {
 			currentState = transitionTable[i].nextState;
 			if (transitionTable[i].action != NULL) {
-				transitionTable[i].action(); // Call the action function if it is not NULL
+				transitionTable[i].action();
 			}
 
 			transitionFound = true;
@@ -819,6 +835,13 @@ void handleEvent(event_t event) {
 }
 
 void actionTurnOn() {
+	HAL_HRTIM_WaveformOutputStart(&hhrtim1,
+	HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2);
+	HAL_HRTIM_SoftwareUpdate(&hhrtim1,
+	HRTIM_TIMERUPDATE_A);
+
+	HAL_Delay(50);
+
 	HAL_GPIO_WritePin(EN_FULL_GPIO_Port, EN_FULL_Pin, GPIO_PIN_SET);
 }
 
@@ -831,17 +854,6 @@ void actionTurnOff() {
 	HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2);
 	HAL_HRTIM_SoftwareUpdate(&hhrtim1,
 	HRTIM_TIMERUPDATE_A);
-}
-
-void actionCalibrate() {
-	HAL_HRTIM_WaveformOutputStart(&hhrtim1,
-	HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2);
-	HAL_HRTIM_SoftwareUpdate(&hhrtim1,
-	HRTIM_TIMERUPDATE_A);
-
-	HAL_Delay(50);
-
-	HAL_GPIO_WritePin(EN_FULL_GPIO_Port, EN_FULL_Pin, GPIO_PIN_SET);
 }
 
 void parse_json(const char *json) {
@@ -865,9 +877,13 @@ void parse_json(const char *json) {
 	cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "mode");
 	if (cJSON_IsString(mode) && (mode->valuestring != NULL)) {
 		if (strcmp(mode->valuestring, "off") == 0) {
-			handleEvent(EVENT_OFF_BUTTON);
-		}else if (strcmp(mode->valuestring, "deploy") == 0) {
-			handleEvent(EVENT_DEPLOY_BUTTON);
+			handleEvent(EVENT_OFF_MSG);
+		}
+		else if (strcmp(mode->valuestring, "localization") == 0) {
+			handleEvent(EVENT_LOCALIZATION_MSG);
+		}
+		else if (strcmp(mode->valuestring, "deploy") == 0) {
+			handleEvent(EVENT_DEPLOY_MSG);
 		}
 
 	cJSON_Delete(root);

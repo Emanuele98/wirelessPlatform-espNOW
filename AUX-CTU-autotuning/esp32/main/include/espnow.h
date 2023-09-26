@@ -30,7 +30,6 @@
 
 #define ALERT_MESSAGE                       0x99
 
-
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 
 typedef enum {

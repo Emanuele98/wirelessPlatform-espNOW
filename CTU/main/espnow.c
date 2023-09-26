@@ -684,6 +684,9 @@ static bool peer_should_connect(peer_id id)
     //if its a scooter, there must be at least one pad connected!
     if ((id > NUMBER_TX) && (!connected_pads))
         return false;
+
+    //localtime_r(&timePeer[id-1], &info);
+    //ESP_LOGW(TAG, "Peer time is %s", asctime(&info));
     
     //check time values saved into NVS
     if (reconnection_time >= timePeer[id-1])

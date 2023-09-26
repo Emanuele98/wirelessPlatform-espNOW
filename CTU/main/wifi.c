@@ -269,6 +269,11 @@ void mqtt_unit_reset(uint8_t id)
             esp_mqtt_client_publish(client, tx_power[id-1], "0", 0, MQTT_QoS, 0);
             esp_mqtt_client_publish(client, tx_efficiency[id-1], "0", 0, MQTT_QoS, 0);
             esp_mqtt_client_publish(client, tx_status[id-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_overtemperature[id - 1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_overcurrent[id - 1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_overvoltage[id - 1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, tx_fod[id - 1], "0", 0, MQTT_QoS, 0);
+
         }
         else
         {
@@ -276,6 +281,10 @@ void mqtt_unit_reset(uint8_t id)
             esp_mqtt_client_publish(client, rx_current[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
             esp_mqtt_client_publish(client, rx_temp[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
             esp_mqtt_client_publish(client, rx_power[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, rx_charge_complete[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, rx_overtemperature[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, rx_overcurrent[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
+            esp_mqtt_client_publish(client, rx_overvoltage[id-NUMBER_TX-1], "0", 0, MQTT_QoS, 0);
         }
     }
 

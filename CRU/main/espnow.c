@@ -61,12 +61,12 @@ void send_accelerometer_wakeup(void)
     if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
     {
         espnow_data_prepare(acc_data, ESPNOW_DATA_LOCALIZATION);
-        esp_now_send(master_mac, (uint8_t *) acc_data, sizeof(espnow_data_t));
+        if(esp_now_send(master_mac, (uint8_t *) acc_data, sizeof(espnow_data_t)) != ESP_OK)
+            xSemaphoreGive(send_semaphore);
     } else  
         ESP_LOGE(TAG, "Could not take send semaphore");
     
     free(acc_data);
-
 }
 
 static void dynamic_timer_callback(TimerHandle_t xTimer)
@@ -84,7 +84,8 @@ static void dynamic_timer_callback(TimerHandle_t xTimer)
         if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
         {
             espnow_data_prepare(buf, ESPNOW_DATA_DYNAMIC);
-            esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
+            if(esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK)
+                xSemaphoreGive(send_semaphore);
         } else  
             ESP_LOGE(TAG, "Could not take send semaphore");
 
@@ -166,7 +167,8 @@ static void alert_timer_callback(TimerHandle_t xTimer)
             if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
             {
                 espnow_data_prepare(buf, ESPNOW_DATA_ALERT);
-                esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t));
+                if (esp_now_send(master_mac, (uint8_t *) buf, sizeof(espnow_data_t)) != ESP_OK)
+                    xSemaphoreGive(send_semaphore);
             } else
                 ESP_LOGE(TAG, "Could not take send semaphore");  
 
@@ -223,12 +225,11 @@ static void ESPNOW_SEND_CB(const uint8_t *mac_addr, esp_now_send_status_t status
         ESP_LOGW(TAG, "Send send queue fail");
     }
 
-    //give back the semaphore if status is successfull
-    if (status == ESP_NOW_SEND_SUCCESS)
-        xSemaphoreGive(send_semaphore);
-    else
-        break;
+    if (status != ESP_NOW_SEND_SUCCESS)
+        return;
 
+    // give back the semaphore if status is successfull
+    xSemaphoreGive(send_semaphore);
     // make sure the alert went through
     if (last_msg_type == ESPNOW_DATA_ALERT)
         alert_payload.internal = 0;
