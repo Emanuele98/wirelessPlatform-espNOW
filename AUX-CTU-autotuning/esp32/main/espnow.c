@@ -406,7 +406,7 @@ static void espnow_task(void *pvParameter)
                         OVERCURRENT = recv_data->field_1;
                         OVERVOLTAGE = recv_data->field_2;
                         OVERTEMPERATURE = recv_data->field_3;
-                        FOD_ACTIVE = recv_data->field_4;
+                        FOD_ACTIVE = recv_data->field_4; //!want to disable FOD?
                         if (!write_STM_limits())
                             ESP_LOGE(TAG, "UART SENT ALERTS LIMITS");
                     }
@@ -442,11 +442,12 @@ static void espnow_task(void *pvParameter)
                     // handle strip and switches
                     if (recv_data->field_1)
                     {
-                        if (!write_STM_command(SWITCH_ON))
-                            ESP_LOGE(TAG, "UART SENT SWITCH ON");
 
                         if (recv_data->field_4 == LED_CHARGING)
                         {
+                            if (!write_STM_command(SWITCH_ON))
+                                ESP_LOGE(TAG, "UART SENT SWITCH ON");
+
                             strip_misalignment = false;
                             strip_enable = false;
                             strip_charging = true;

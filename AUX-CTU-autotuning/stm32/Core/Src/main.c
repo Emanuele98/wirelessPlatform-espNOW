@@ -130,21 +130,22 @@ void parse_json(const char *json);
 /* USER CODE BEGIN 0 */
 // @formatter:off
 transition_t transitionTable[] = {
-		{ STATE_IDLE, 			EVENT_LOCALIZATION_MSG,    	STATE_CALIBRATING, 	actionTurnOn				 	},
-
+		{ STATE_IDLE, 			EVENT_LOCALIZATION_MSG,    	STATE_CALIBRATING, 	actionTurnOn			 	},
 		{ STATE_CALIBRATING, 	EVENT_CALIBRATE_DONE, 		STATE_LOCALIZATION, NULL					 	},
+		{ STATE_LOCALIZATION, 	EVENT_DEPLOY_MSG,			STATE_DEPLOY, 		NULL 						},
 
-		{ STATE_LOCALIZATION, 	EVENT_DEPLOY_MSG,	STATE_DEPLOY, 		NULL 						},
+		{ STATE_IDLE, 			EVENT_DEPLOY_MSG,			STATE_CALIBRATING,  actionTurnOn				},
+		{ STATE_CALIBRATING, 	EVENT_CALIBRATE_DONE,		STATE_DEPLOY,  		NULL						},
 
 		{ STATE_DEPLOY, 		EVENT_ALERT, 				STATE_IDLE,      	actionTurnOff 				},
-		{ STATE_DEPLOY, 		EVENT_OFF_MSG, 			STATE_IDLE,     	actionTurnOff 				},
+		{ STATE_DEPLOY, 		EVENT_OFF_MSG, 				STATE_IDLE,     	actionTurnOff 				},
 		{ STATE_CALIBRATING, 	EVENT_ALERT, 				STATE_IDLE, 		actionTurnOff 				},
-		{ STATE_CALIBRATING, 	EVENT_OFF_MSG, 			STATE_IDLE, 		actionTurnOff 				},
-		{ STATE_IDLE,			EVENT_OFF_MSG,			STATE_IDLE,			actionTurnOff				},
+		{ STATE_CALIBRATING, 	EVENT_OFF_MSG, 				STATE_IDLE, 		actionTurnOff 				},
+		{ STATE_IDLE,			EVENT_OFF_MSG,				STATE_IDLE,			actionTurnOff				},
 		{ STATE_IDLE,			EVENT_ALERT,				STATE_IDLE,			actionTurnOff				},
 		{ STATE_IDLE,			EVENT_ALERT,				STATE_IDLE,			actionTurnOff				},
 		{ STATE_LOCALIZATION,	EVENT_ALERT,				STATE_IDLE,			actionTurnOff				},
-		{ STATE_LOCALIZATION,	EVENT_OFF_MSG,			STATE_IDLE,			actionTurnOff				},
+		{ STATE_LOCALIZATION,	EVENT_OFF_MSG,				STATE_IDLE,			actionTurnOff				},
 };
 //@formatter:on
 /* USER CODE END 0 */
@@ -229,6 +230,8 @@ int main(void)
 
 
 	char json[1024];
+
+	double alert_temp1 = 0, alert_temp2 = 0, alert_voltage = 0, alert_current = 0;
 
 	HAL_UART_Receive_IT(&huart2, &rxBuffer[rxIndex], 1); // Enable UART receive interrupt
 	HAL_TIM_Base_Start_IT(&htim6);
@@ -350,18 +353,28 @@ int main(void)
 				 }
 			} else if (currentState == STATE_DEPLOY) //no duty cycle changes
 			{
+				// dynamic reaction to slow duty cycle changes
 				min_duty = current_duty - DEPLOY_DUTY_TRESHOLD;
+				if (min_duty < MIN_DUTY_CALIBRATION)
+					min_duty = MIN_DUTY_CALIBRATION;
+
 				max_duty = current_duty + DEPLOY_DUTY_TRESHOLD;
+				if (max_duty > MAX_DUTY_CALIBRATION)
+					max_duty = MAX_DUTY_CALIBRATION;
 			}
 		}
 
 		// handle ALERTS
 		if ((temp1 > TEMP_LIMIT) || (temp2 > TEMP_LIMIT)) {
 			gAlertType = OT;
+			alert_temp1 = temp1;
+			alert_temp2 = temp2;
 		} else if (voltage > VOLT_LIMIT){
 			gAlertType = OV;
+			alert_voltage = voltage;
 		} else if (current > CURRENT_LIMIT) {
 			gAlertType = OC;
+			alert_current = current;
 		}
 
 		if ((gAlertType != NONE) && (currentState != STATE_IDLE))
@@ -381,6 +394,15 @@ int main(void)
 
 		if (SEND_TIMER_FLAG && UART_READY && (currentState != STATE_CALIBRATING))
 		{
+			if (alert_temp1)
+				temp1 = alert_temp1;
+			if (alert_temp2)
+				temp2 = alert_temp2;
+			if (alert_voltage)
+				voltage = alert_voltage;
+			if (alert_current)
+				current = alert_current;
+
 			sprintf(json,
 					"{\"temperature1\":%.2f,\"temperature2\":%.2f,\"duty\":%.3f,\"voltage\":%.2f,\"current\":%.2f,\"tuning\":%i,\"low_vds\":%i,\"low_vds_threshold\":%i,\"alert\":%i}",
 					temp1, temp2, current_duty, voltage, current, tuning,
@@ -389,6 +411,7 @@ int main(void)
 			HAL_UART_Transmit_IT(&huart2, (uint8_t*) json, strlen(json));
 			UART_READY = false;
 			SEND_TIMER_FLAG = false;
+			alert_temp1 = alert_temp2 = alert_voltage = alert_current = 0;
 		}
 
 		HAL_Delay(10);

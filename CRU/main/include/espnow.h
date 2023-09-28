@@ -19,7 +19,7 @@
 
 #include "cru_hw.h"
 
-#define UNIT_ROLE SCOOTER1
+#define UNIT_ROLE SCOOTER2
 
 #define ESPNOW_MAXDELAY         10000 //10 seconds
 

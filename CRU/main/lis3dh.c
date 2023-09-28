@@ -1461,9 +1461,8 @@ void read_data ()
     if (lis3dh_new_data (sensor) &&
         lis3dh_get_float_data (sensor, &data))
         // max. full scale is +-16 g and best resolution is 1 mg, i.e. 5 digits
-        printf("%.3f LIS3DH (xyz)[g] ax=%+7.3f ay=%+7.3f az=%+7.3f\n",
-               (double)sdk_system_get_time()*1e-3, 
-                data.ax, data.ay, data.az);
+        printf("\nLIS3DH (xyz)[g] ax=%+7.3f ay=%+7.3f az=%+7.3f\n",
+               data.ax, data.ay, data.az);
         
     #endif // FIFO_MODE
 }
@@ -1519,12 +1518,9 @@ void user_task_interrupt (void *pvParameters)
             // in case of event interrupt
             else if (event_src.active) 
             {
-                if ((scooter_status == SCOOTER_ALERT) || (scooter_status == SCOOTER_FULLY_CHARGED))
+                if ((scooter_status == SCOOTER_ALERT) || (scooter_status == SCOOTER_FULLY_CHARGED) || (scooter_status == SCOOTER_CHARGING))
                 {
                     printf("LIS3DH ");
-                    if (event_src.x_low)  printf("x is lower than threshold\n");
-                    if (event_src.y_low)  printf("y is lower than threshold\n");
-                    if (event_src.z_low)  printf("z is lower than threshold\n");
                     if (event_src.x_high) printf("x is higher than threshold\n");
                     if (event_src.y_high) printf("y is higher than threshold\n");
                     if (event_src.z_high) printf("z is higher than threshold\n");
@@ -1639,7 +1635,7 @@ void accelerometer_init(void)
         // event_config.mode = lis3dh_6d_position;
         // event_config.mode = lis3dh_4d_movement;
         // event_config.mode = lis3dh_4d_position;
-        event_config.threshold = 10;
+        event_config.threshold = 2;
         event_config.x_low_enabled  = false;
         event_config.x_high_enabled = true;
         event_config.y_low_enabled  = false;

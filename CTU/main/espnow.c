@@ -422,7 +422,15 @@ static void handle_peer_alert(espnow_data_t *data, espnow_data_t *alert_data)
         if (data->field_3)  
             pad->alert_payload.overvoltage = true;
         if (data->field_4)
+        {
             pad->alert_payload.F = true;
+            ESP_LOGE(TAG, "FOD ALERT from %d", pad->alert_payload.F);
+            vTaskDelay(pdMS_TO_TICKS(FOD_CLEAR_TIMEOUT)); //wait for the scooter to move
+            ESP_LOGE(TAG, "FOD ALERT from %d", pad->alert_payload.F);
+            // if scooter moved - discard FOD
+            if (!pad->alert_payload.F)
+                return;
+        }
 
         // save reconnection time
         NVS_write_alert(unitID);
@@ -896,10 +904,12 @@ static bool pass_the_baton(espnow_data_t *loc_data)
                 if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
                 {
                     p->low_power = 0;
-                    pads_status[Baton] = PAD_CONNECTED;
                     espnow_data_prepare(loc_data, ESPNOW_DATA_CONTROL, p->id);
                     esp_now_send(p->mac, (uint8_t *)loc_data, sizeof(espnow_data_t));
                     ESP_LOGW(TAG, "pad switched OFF: %d", Baton + 1);
+                    vTaskDelay(pdMS_TO_TICKS(UART_TX_DELAY));
+                    pads_status[Baton] = PAD_CONNECTED;
+
                 } else 
                     ESP_LOGE(TAG, "Could not take the send semaphore!");
             }
@@ -1041,7 +1051,7 @@ static void localization_task(void *pvParameter)
 
             case ACCELEROMETER_WAKEUP:
                 // this is received after the scooter went to either FULLY_CHARGED or ALERT
-                ESP_LOGW(TAG, "ACCELEROMETER WAKEUP");
+                ESP_LOGW(TAG, "ACCELEROMETER WAKEUP from scooter %d", recv_data->id - NUMBER_TX);
                 struct peer *p = peer_find_by_id(scooter->position);
                 if (scooter == NULL)
                 {
@@ -1050,6 +1060,9 @@ static void localization_task(void *pvParameter)
                 }
                 if (p != NULL)
                 {
+                    //!DISCARD FOD ON ROLL-OFF
+                    p->alert_payload.F = false;
+
                     if (pads_status[p->id -1] == PAD_FULLY_CHARGED)
                     {
                         //make the relative pad free again
@@ -1064,17 +1077,21 @@ static void localization_task(void *pvParameter)
                         pads_status[p->id - 1] = PAD_CONNECTED;      
                     } 
                 }
-                // reset the scooter (for both cases: fully charged or alert)
-                if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+
+                // reset the scooter (for cases: fully charged or alert)
+                if ((scooters_status[scooter->id - NUMBER_TX - 1] == SCOOTER_ALERT) || (scooters_status[scooter->id - NUMBER_TX - 1] == SCOOTER_FULLY_CHARGED))
                 {
-                    // to reset now - we must avoid the alert payload
-                    scooter->alert_payload.overtemperature = scooter->alert_payload.overvoltage = scooter->alert_payload.overcurrent = scooter->alert_payload.F = false;
-                    espnow_data_prepare(localization_data, ESPNOW_DATA_ALERT, scooter->id);
-                    esp_now_send(scooter->mac, (uint8_t *)localization_data, sizeof(espnow_data_t));
+                    if (xSemaphoreTake(send_semaphore, pdMS_TO_TICKS(ESPNOW_MAXDELAY)) == pdTRUE)
+                    {
+                        // to reset now - we must avoid the alert payload
+                        scooter->alert_payload.overtemperature = scooter->alert_payload.overvoltage = scooter->alert_payload.overcurrent = scooter->alert_payload.F = false;
+                        espnow_data_prepare(localization_data, ESPNOW_DATA_ALERT, scooter->id);
+                        esp_now_send(scooter->mac, (uint8_t *)localization_data, sizeof(espnow_data_t));
+                        scooters_status[scooter->id - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
+                    } else
+                        ESP_LOGE(TAG, "Could not take the send semaphore!");
                     scooters_status[scooter->id - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
-                } else
-                    ESP_LOGE(TAG, "Could not take the send semaphore!");
-                scooters_status[scooter->id - NUMBER_TX - 1] = SCOOTER_DISCONNECTED;
+                }
                 break;
 
             default:

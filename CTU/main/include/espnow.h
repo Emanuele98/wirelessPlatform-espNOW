@@ -28,12 +28,12 @@
 #define MISALIGNED_LIMIT                    50
 
 /* ALERTS LIMITS TX */
-#define OVERCURRENT_TX                      3
-#define OVERVOLTAGE_TX                      100
-#define OVERTEMPERATURE_TX                  60
-#define FOD_ACTIVE                          0
+#define OVERCURRENT_TX                      2.2
+#define OVERVOLTAGE_TX                      75
+#define OVERTEMPERATURE_TX                  40
+#define FOD_ACTIVE                          1
 /* ALERTS LIMITS RX */
-#define OVERCURRENT_RX                      3
+#define OVERCURRENT_RX                      2
 #define OVERVOLTAGE_RX                      100
 #define OVERTEMPERATURE_RX                  60
 #define MIN_VOLTAGE                         50
@@ -41,6 +41,7 @@
 /* LOC TIMING */
 #define REACTION_TIME                       1000    //milliseconds
 #define BATON_PASS_TIMEOUT                  10000   //milliseconds
+#define UART_TX_DELAY                       100     //milliseconds
 
 /* DYNAMIC PAYLOAD TIMING */
 #define PEER_DYNAMIC_TIMER                  1000    //milliseconds
@@ -74,6 +75,9 @@
 #define RX_OVERTEMPERATURE_TIMEOUT          60*2     //2 minutes
 #define RX_OVERVOLTAGE_TIMEOUT              60*2     //2 minutes
 #define RX_OVERCURRENT_TIMEOUT              60*2     //2 minutes
+
+/* FOD_CLEAR_TIMEOUT */
+#define FOD_CLEAR_TIMEOUT                   2000     //2 seconds
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 

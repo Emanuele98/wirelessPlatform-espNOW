@@ -111,7 +111,7 @@
 // #define SPI_USED     // SPI interface is used, otherwise I2C
 // #define FIFO_MODE    // multiple sample read mode
 // #define INT_DATA     // data interrupts used (data ready and FIFO status)
-#define INT_EVENT    // inertial event interrupts used (wake-up, free fall or 6D/4D orientation)
+ #define INT_EVENT    // inertial event interrupts used (wake-up, free fall or 6D/4D orientation)
 // #define INT_CLICK    // click detection interrupts used
 
 #if defined(INT_DATA) || defined(INT_EVENT) || defined(INT_CLICK)

@@ -19,7 +19,7 @@
 
 #include "led_strip.h"
 
-#define UNIT_ROLE PAD1
+#define UNIT_ROLE PAD2
 
 #define ESPNOW_MAXDELAY         10000 //10 seconds
 

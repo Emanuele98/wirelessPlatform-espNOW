@@ -314,6 +314,7 @@ static void espnow_data_prepare(espnow_data_t *buf, message_type type)
                 buf->field_2 = buf->field_3 = buf->field_4 = 0;
                 if (dynamic_payload.voltage > MIN_VOLTAGE) 
                 {
+                    ESP_LOGI(TAG, "Scooter is charging");
                     scooter_status = SCOOTER_CHARGING;
                     buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = LOC_STOP_MESSAGE;
                     if (xTimerStart(dynamic_timer, 0) != pdPASS) {
@@ -321,7 +322,7 @@ static void espnow_data_prepare(espnow_data_t *buf, message_type type)
                     }
                 }
             }
-            else if ((scooter_status == SCOOTER_FULLY_CHARGED) || (scooter_status == SCOOTER_ALERT))
+            else
             {
                 buf->field_1 = buf->field_2 = buf->field_3 = buf->field_4 = ACCELEROMETER_MESSAGE;
             }
@@ -609,5 +610,8 @@ esp_err_t espnow_init(void)
     } else  
         ESP_LOGE(TAG, "Could not take send semaphore");
 
+    //?TESTING
+    //scooter_status = SCOOTER_ALERT;
+    
     return ESP_OK;
 }
