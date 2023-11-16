@@ -229,14 +229,14 @@ void wifi_init(void)
         //esp_wifi_get_channel(&primary, &secondary);
         //ESP_LOGI(TAG, "primary channel: %d, secondary channel: %d", primary, secondary);    
 
-        //*wait for mqtt to connect
-        //while (!MQTT_ACTIVE) {}
-
         //*Simple Network Time Protocol
         sntp_setoperatingmode(SNTP_OPMODE_POLL);
         sntp_setservername(0, "pool.ntp.org");
         sntp_set_time_sync_notification_cb(sntp_callback);
         sntp_init();
+
+        //*wait for mqtt to connect
+        while (!MQTT_ACTIVE) {}
 
         // wait for time to be set
         //while(!update){}

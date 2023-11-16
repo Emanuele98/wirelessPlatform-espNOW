@@ -320,7 +320,8 @@ static void espnow_data_prepare(espnow_data_t *buf, message_type type)
                     if (xTimerStart(dynamic_timer, 0) != pdPASS) {
                         ESP_LOGE(TAG, "Cannot start dynamic timer");
                     }
-                }
+                } else
+                    ESP_LOGW(TAG, "Scooter is not localized yet %.2f", dynamic_payload.voltage);
             }
             else
             {

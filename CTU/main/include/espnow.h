@@ -30,7 +30,7 @@
 /* ALERTS LIMITS TX */
 #define OVERCURRENT_TX                      2.2
 #define OVERVOLTAGE_TX                      75
-#define OVERTEMPERATURE_TX                  40
+#define OVERTEMPERATURE_TX                  50
 #define FOD_ACTIVE                          1
 /* ALERTS LIMITS RX */
 #define OVERCURRENT_RX                      2
@@ -77,7 +77,7 @@
 #define RX_OVERCURRENT_TIMEOUT              60*2     //2 minutes
 
 /* FOD_CLEAR_TIMEOUT */
-#define FOD_CLEAR_TIMEOUT                   2000     //2 seconds
+#define FOD_CLEAR_TIMEOUT                   4000     //2 seconds
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 
