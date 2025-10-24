@@ -8,7 +8,7 @@ menu "CTU Configuration"
 
     config WIFI_SSID
         string "WiFi SSID"
-        default "manu"
+        default "bumblebee"
         help
             WiFi SSID of the AP.
     

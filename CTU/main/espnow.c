@@ -799,6 +799,8 @@ void espnow_data_prepare(espnow_data_t *buf, message_type type, peer_id id)
                 buf->field_2 = OVERVOLTAGE_TX;
                 buf->field_3 = OVERTEMPERATURE_TX;
                 buf->field_4 = FOD_ACTIVE;
+                //print them out 
+                //ESP_LOGW(TAG, "Set local alerts limits: OC %.2fA, OV %.2fV, OT %.2fC, FOD %.2f", buf->field_1, buf->field_2, buf->field_3, buf->field_4);
             }
             else if ((p->type == SCOOTER) && (scooters_status[p->id - NUMBER_TX - 1] == SCOOTER_DISCONNECTED))
             {

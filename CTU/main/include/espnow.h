@@ -29,7 +29,7 @@
 
 /* ALERTS LIMITS TX */
 #define OVERCURRENT_TX                      2.2
-#define OVERVOLTAGE_TX                      75
+#define OVERVOLTAGE_TX                      80
 #define OVERTEMPERATURE_TX                  50
 #define FOD_ACTIVE                          1
 /* ALERTS LIMITS RX */

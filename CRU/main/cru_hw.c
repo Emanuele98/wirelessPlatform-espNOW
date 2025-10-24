@@ -72,7 +72,7 @@ static float adc_read_current_sensor(void)
     //Convert voltage_reading to voltage in mV
     uint32_t current = esp_adc_cal_raw_to_voltage(current_reading, adc_chars2);
     //printf("Raw: %d\tVoltage: %dmV\n", voltage_reading, voltage);
-    value = (float)((current - 400)/360.00) * 0.94;
+    value = (float)((current - 400)/360.00) * 1.1;
 
     if (current < 450)
     {

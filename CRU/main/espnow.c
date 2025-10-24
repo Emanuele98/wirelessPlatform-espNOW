@@ -515,6 +515,7 @@ static void espnow_task(void *pvParameter)
                     }
                     else
                     {
+                        ESP_LOGE(TAG, "Localization failed as scooter is not connected");
                         // received after the relative pad is on ALERT
                         // put the scooter on alert to unlock the accelerometer data
                         vTaskDelay(pdMS_TO_TICKS(ACCELEROMETER_ACTIVE_TIME));

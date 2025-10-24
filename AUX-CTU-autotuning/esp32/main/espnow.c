@@ -407,8 +407,9 @@ static void espnow_task(void *pvParameter)
                         OVERVOLTAGE = recv_data->field_2;
                         OVERTEMPERATURE = recv_data->field_3;
                         FOD_ACTIVE = recv_data->field_4; //!want to disable FOD?
+                        ESP_LOGW(TAG, "Set local alerts limits: OC %.2fA, OV %.2fV, OT %.2fC, FOD %.2f", recv_data->field_1, recv_data->field_2, recv_data->field_3, recv_data->field_4);
                         if (!write_STM_limits())
-                            ESP_LOGE(TAG, "UART SENT ALERTS LIMITS");
+                            ESP_LOGI(TAG, "UART SENT ALERTS LIMITS");
                     }
                     else
                     {
