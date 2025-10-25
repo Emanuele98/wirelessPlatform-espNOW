@@ -14,7 +14,7 @@ menu "CRU Configuration"
 
     config ESPNOW_CHANNEL
         int "Channel"
-        default 11
+        default 6
         range 0 14
         help
             The channel on which sending and receiving ESPNOW data.

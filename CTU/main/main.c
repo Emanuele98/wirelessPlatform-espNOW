@@ -61,10 +61,11 @@ void app_main(void)
     ESP_ERROR_CHECK( ret );
 
     /* Init wifi */
-    if (CONFIG_WIFI_EN)
+    #ifdef CONFIG_WIFI_EN
         wifi_init();
-    else
+    #else
         wifi_init_connectionless();
+    #endif
 
     /* Init values on NVS */ 
     init_NVS();
